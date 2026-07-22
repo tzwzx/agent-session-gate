@@ -1,0 +1,37 @@
+{
+  "name": "agent-session-gate",
+  "version": "1.0.0",
+  "description": "Run checks on an AI agent's stop hook only when the session actually changed something",
+  "bin": {
+    "agent-session-gate": "./bin/agent-session-gate.sh"
+  },
+  "files": [
+    "bin"
+  ],
+  "scripts": {
+    "test": "./test/run.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tzwzx/agent-session-gate.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tzwzx/agent-session-gate/issues"
+  },
+  "homepage": "https://github.com/tzwzx/agent-session-gate#readme",
+  "keywords": [
+    "agent",
+    "hooks",
+    "claude-code",
+    "cursor",
+    "codex",
+    "lint",
+    "cli"
+  ],
+  "os": [
+    "darwin",
+    "linux"
+  ],
+  "author": "Naoto Tazawa",
+  "license": "MIT"
+}
