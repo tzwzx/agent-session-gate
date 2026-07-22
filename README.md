@@ -31,6 +31,20 @@ bun add -d github:tzwzx/agent-session-gate
 npm i -D github:tzwzx/agent-session-gate
 ```
 
+> [!IMPORTANT]
+> This package is invoked as a command from your agent's hook config and is never imported from code, so **dead-code analyzers report it as an unused dependency** and fail the build. Add it to the analyzer's ignore list:
+>
+> ```jsonc
+> // fallow — .fallowrc.jsonc
+> "ignoreDependencies": ["agent-session-gate"]
+> ```
+> ```jsonc
+> // knip — knip.json
+> "ignoreDependencies": ["agent-session-gate"]
+> ```
+>
+> `depcheck` and similar tools need the same treatment.
+
 ## 🔌 Wiring
 
 Two hooks: one records the baseline, one guards the checks.
