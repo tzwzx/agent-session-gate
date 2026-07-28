@@ -128,7 +128,7 @@ The hook payload and the response format differ per agent, so both spellings are
 | Codex CLI | `session_id` | `decision` + `reason` |
 | Cursor | `conversation_id` | `followup_message` |
 
-## 🛟 Fail-safe behaviour
+## 🛟 Fail-safe behavior
 
 The gate is built to over-run rather than under-run. It runs your command whenever it cannot prove nothing changed:
 
