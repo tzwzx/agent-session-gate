@@ -3,7 +3,6 @@ fallowrc
 gpgsign
 naoto
 Naoto
-rulesync
 tazawa
 Tazawa
 toplevel

@@ -22,9 +22,7 @@
   "keywords": [
     "agent",
     "hooks",
-    "claude-code",
     "cursor",
-    "codex",
     "lint",
     "cli"
   ],

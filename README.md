@@ -49,50 +49,7 @@ npm i -D github:tzwzx/agent-session-gate
 
 Two hooks: one records the baseline, one guards the checks.
 
-### Claude Code — `.claude/settings.json`
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          { "type": "command", "command": "bunx agent-session-gate session-start" }
-        ]
-      }
-    ],
-    "Stop": [
-      {
-        "hooks": [
-          { "type": "command", "command": "bunx agent-session-gate stop -- bun run lint" }
-        ]
-      }
-    ]
-  }
-}
-```
-
 ### Cursor — `.cursor/hooks.json`
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "sessionStart": [
-      { "command": "bunx agent-session-gate session-start" }
-    ],
-    "stop": [
-      { "command": "bunx agent-session-gate stop -- bun run lint" }
-    ]
-  }
-}
-```
-
-### Codex CLI — `.codex/hooks.json`
-
-Same shape as Claude Code.
-
-### rulesync — `.rulesync/hooks.json`
 
 ```json
 {
@@ -118,15 +75,9 @@ Anything after `--` is your command. It can be a script, a binary, or a whole pi
 
 Because the hash covers untracked files, a brand new file the agent just wrote counts as a change. A plain `git diff` guard misses those.
 
-## 🤖 Agent compatibility
+## 🤖 Cursor compatibility
 
-The hook payload and the response format differ per agent, so both spellings are read and all response keys are emitted.
-
-| | Session key | Sent back to work via |
-|---|---|---|
-| Claude Code | `session_id` | `decision` + `reason` |
-| Codex CLI | `session_id` | `decision` + `reason` |
-| Cursor | `conversation_id` | `followup_message` |
+Cursor passes `conversation_id` in the hook payload and reads `followup_message` when a check fails.
 
 ## 🛟 Fail-safe behavior
 
