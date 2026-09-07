@@ -1,6 +1,6 @@
 {
   "name": "cursor-agent-hooks",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Cursor hooks toolkit: run checks on stop only when the session changed something, and format the edited file after each edit",
   "bin": {
     "cursor-agent-hooks": "./bin/cursor-agent-hooks.sh"

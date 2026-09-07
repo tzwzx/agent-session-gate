@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Test suite for cursor-agent-hooks.
+# cursor-agent-hooks のテストです。
 #
-# Runs against a disposable git repository created under $TMPDIR. No existing
-# repository is touched, and everything is removed on exit.
+# $TMPDIR 配下に使い捨て Git リポジトリを作り、それに対して実行します。
+# 既存リポジトリは触らず、終了時にすべて削除します。
 
 set -uo pipefail
 
@@ -25,13 +25,13 @@ check() {
   if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "$2" "$3"; fi
 }
 
-# ---- fixture -----------------------------------------------------------------
+# ---- フィクスチャ -----------------------------------------------------------
 
 REPO=$(mktemp -d)
 STATE=$(mktemp -d)
 export CURSOR_AGENT_HOOKS_STATE_DIR="$STATE"
 
-cleanup() { rm -rf "$REPO" "$STATE"; }
+cleanup() { rm -rf "$REPO" "$STATE" "${OUTSIDE:-}" "${OTHER:-}" "${NON_GIT:-}"; }
 trap cleanup EXIT
 
 git -C "$REPO" init -q
@@ -41,9 +41,8 @@ printf 'hello\n' >"$REPO/tracked.txt"
 git -C "$REPO" add -A
 git -C "$REPO" -c commit.gpgsign=false commit -qm init
 
-# A command that appends to a marker file so tests can tell whether it ran.
-# The failing variant prints from a file so its output stays distinguishable
-# from the command line itself, which the gate also echoes back.
+# 実行したかどうかはマーカーファイルへの追記で判定します。
+# 失敗系はファイルから出力し、ゲートがコマンドラインをエコーする分と区別します。
 MARKER="$REPO/.ran"
 MESSAGE="$REPO/.msg"
 printf 'KABOOM: something is broken\n' >"$MESSAGE"
@@ -56,16 +55,20 @@ runs() {
 
 payload() { printf '{"session_id":"%s","cwd":"%s"%s}' "$1" "$REPO" "${2:-}"; }
 
-start() { payload "$1" "${2:-}" | "$GATE" session-start; }
+# Cursor と同様、プロジェクトルートを PWD にして呼び出します。
+start() { payload "$1" "${2:-}" | (cd "$REPO" && "$GATE" session-start); }
 stop() {
   local id=$1
   shift
-  payload "$id" | "$GATE" stop -- "$@"
+  payload "$id" | (cd "$REPO" && "$GATE" stop -- "$@")
+}
+stop_default() {
+  payload "$1" | (cd "$REPO" && "$GATE" stop)
 }
 
 printf '\ncursor-agent-hooks\n\n'
 
-# ---- tests -------------------------------------------------------------------
+# ---- テスト ------------------------------------------------------------------
 
 start s1
 check "session-start records a baseline" "$([ -s "$STATE/s1" ] && echo yes || echo no)" "yes"
@@ -87,10 +90,10 @@ check "stop skips again once the tree settles" "$(runs)" "2"
 stop no-baseline "${RUN_OK[@]}" >/dev/null
 check "stop runs when no baseline exists (fail safe)" "$(runs)" "3"
 
-printf '{"cwd":"%s"}' "$REPO" | "$GATE" stop -- "${RUN_OK[@]}" >/dev/null
+printf '{"cwd":"%s"}' "$REPO" | (cd "$REPO" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "stop runs without a session id (fail safe)" "$(runs)" "4"
 
-# ---- compaction --------------------------------------------------------------
+# ---- コンパクション ----------------------------------------------------------
 
 start s2
 BEFORE=$(cat "$STATE/s2")
@@ -101,17 +104,17 @@ check "compaction keeps the original baseline" "$(cat "$STATE/s2")" "$BEFORE"
 start s2 ',"source":"resume"'
 check "resume refreshes the baseline" "$([ "$(cat "$STATE/s2")" != "$BEFORE" ] && echo yes || echo no)" "yes"
 
-# ---- cursor payload ----------------------------------------------------------
+# ---- Cursor のペイロード -----------------------------------------------------
 
-printf '{"conversation_id":"c1","workspace_roots":["%s"]}' "$REPO" | "$GATE" session-start
+printf '{"conversation_id":"c1","workspace_roots":["%s"]}' "$REPO" | (cd "$REPO" && "$GATE" session-start)
 check "cursor payload records a baseline" "$([ -s "$STATE/c1" ] && echo yes || echo no)" "yes"
 
 BEFORE_RUNS=$(runs)
 printf '{"conversation_id":"c1","status":"completed","loop_count":0,"workspace_roots":["%s"]}' "$REPO" |
-  "$GATE" stop -- "${RUN_OK[@]}" >/dev/null
+  (cd "$REPO" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "cursor payload skips an unchanged tree" "$(runs)" "$BEFORE_RUNS"
 
-# ---- failure output ----------------------------------------------------------
+# ---- 失敗時の出力 ------------------------------------------------------------
 
 start s3
 printf 'break\n' >>"$REPO/tracked.txt"
@@ -125,7 +128,7 @@ BEFORE_RUNS=$(runs)
 stop s3 "${RUN_NG[@]}" >/dev/null
 check "an unfixed failure does not loop" "$(runs)" "$BEFORE_RUNS"
 
-# ---- untracked rename --------------------------------------------------------
+# ---- 未追跡ファイルのリネーム ------------------------------------------------
 
 printf 'payload\n' >"$REPO/untracked-src.txt"
 start s4
@@ -134,7 +137,7 @@ mv "$REPO/untracked-src.txt" "$REPO/untracked-dst.txt"
 stop s4 "${RUN_OK[@]}" >/dev/null
 check "stop runs after an untracked file is renamed" "$(runs)" "$((BEFORE_RUNS + 1))"
 
-# ---- binary re-edit ----------------------------------------------------------
+# ---- バイナリの再編集 --------------------------------------------------------
 
 printf '\0\1\2' >"$REPO/bin.dat"
 git -C "$REPO" add bin.dat
@@ -147,7 +150,7 @@ printf '\0\1\4' >"$REPO/bin.dat"
 stop s5 "${RUN_OK[@]}" >/dev/null
 check "stop runs after a same-length binary rewrite" "$(runs)" "$((BEFORE_RUNS + 1))"
 
-# ---- unreadable untracked (fail safe) ----------------------------------------
+# ---- 読めない未追跡ファイル（フェイルセーフ） --------------------------------
 
 start s6
 ln -s /nonexistent "$REPO/broken-link"
@@ -159,23 +162,39 @@ stop s6 "${RUN_OK[@]}" >/dev/null
 check "unreadable untracked keeps failing safe" "$(runs)" "$((BEFORE_RUNS + 1))"
 rm -f "$REPO/broken-link"
 
-# ---- outside a git repository ------------------------------------------------
+# ---- Git リポジトリの外 ------------------------------------------------------
 
 OUTSIDE=$(mktemp -d)
-printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | "$GATE" session-start
+printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | (cd "$OUTSIDE" && "$GATE" session-start)
 BEFORE_RUNS=$(runs)
-printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | "$GATE" stop -- "${RUN_OK[@]}" >/dev/null
+printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | (cd "$OUTSIDE" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "stop runs outside a git repository (fail safe)" "$(runs)" "$((BEFORE_RUNS + 1))"
 
 # ---- after-edit --------------------------------------------------------------
 
 ARGS="$REPO/.args"
+OXFMT="$REPO/node_modules/.bin/oxfmt"
+OXFMT_LOG="$REPO/.oxfmt-args"
+STOP_SH="$REPO/.cursor/hooks/stop.sh"
 printf 'export const probe={a:1}\n' >"$REPO/src.ts"
 record_args() {
   (cd "$REPO" && "$GATE" after-edit -- sh -c 'printf "%s\n" "$*" >>"$0"' "$ARGS")
 }
 logged_args() {
   if [ -f "$ARGS" ]; then cat "$ARGS"; else printf ''; fi
+}
+logged_oxfmt() {
+  if [ -f "$OXFMT_LOG" ]; then cat "$OXFMT_LOG"; else printf ''; fi
+}
+install_oxfmt() {
+  mkdir -p "$(dirname "$OXFMT")"
+  printf '%s\n' '#!/bin/sh' 'echo NOISE' "printf '%s\\n' \"\$*\" >>'$OXFMT_LOG'" >"$OXFMT"
+  chmod +x "$OXFMT"
+}
+install_stop_sh() {
+  mkdir -p "$(dirname "$STOP_SH")"
+  printf '%s\n' '#!/bin/sh' "echo ran >>'$MARKER'" >"$STOP_SH"
+  chmod +x "$STOP_SH"
 }
 
 rm -f "$ARGS"
@@ -203,13 +222,137 @@ after_edit_rc=0
 printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit -- sh -c 'exit 1') || after_edit_rc=$?
 check "after-edit exits 0 when the command fails" "$after_edit_rc" "0"
 
-rm -f "$ARGS"
+# ---- after-edit / stop のデフォルト ------------------------------------------
+
+rm -f "$ARGS" "$OXFMT" "$OXFMT_LOG"
 printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit)
-check "after-edit skips when no command follows" "$(logged_args)" ""
+check "after-edit no-ops when default oxfmt is missing" "$(logged_args)$(logged_oxfmt)" ""
 
-rm -rf "$OUTSIDE"
+install_oxfmt
+rm -f "$OXFMT_LOG"
+OUT=$(printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit))
+check "after-edit defaults to oxfmt --threads=1" "$(logged_oxfmt)" "--threads=1 $REPO/src.ts"
+check "after-edit default discards formatter output" "$OUT" ""
 
-# ---- unknown subcommand ------------------------------------------------------
+rm -f "$ARGS" "$OXFMT_LOG"
+printf '{"file_path":"%s"}' "$REPO/src.ts" | record_args
+check "after-edit -- overrides the default oxfmt" "$(logged_args)" "$REPO/src.ts"
+check "after-edit -- does not run default oxfmt" "$(logged_oxfmt)" ""
+
+rm -f "$OXFMT_LOG"
+printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit --)
+check "after-edit -- with no command uses default oxfmt" "$(logged_oxfmt)" "--threads=1 $REPO/src.ts"
+
+rm -f "$STOP_SH"
+start sd-missing
+printf 'default-missing\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_default sd-missing >/dev/null
+check "stop no-ops when default stop.sh is missing" "$(runs)" "$BEFORE_RUNS"
+
+install_stop_sh
+start sd-default
+printf 'default-present\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_default sd-default >/dev/null
+check "stop defaults to .cursor/hooks/stop.sh" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+BEFORE_RUNS=$(runs)
+stop_default sd-default >/dev/null
+check "stop skips default stop.sh when the tree is unchanged" "$(runs)" "$BEFORE_RUNS"
+
+STOP_DEFAULT_LOG="$REPO/.stop-default"
+printf '%s\n' '#!/bin/sh' "echo default-stop >>'$STOP_DEFAULT_LOG'" >"$STOP_SH"
+chmod +x "$STOP_SH"
+start sd-override
+printf 'default-override\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop sd-override "${RUN_OK[@]}" >/dev/null
+check "stop -- overrides the default stop.sh" "$(runs)" "$((BEFORE_RUNS + 1))"
+check "stop -- does not run default stop.sh" "$( [ -f "$STOP_DEFAULT_LOG" ] && echo yes || echo no )" "no"
+
+printf '%s\n' '#!/bin/sh' "echo ran >>'$MARKER'" >"$STOP_SH"
+chmod +x "$STOP_SH"
+start sd-empty-dash
+printf 'default-empty-dash\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+payload sd-empty-dash | (cd "$REPO" && "$GATE" stop --) >/dev/null
+check "stop -- with no command uses default stop.sh" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+printf '%s\n' '#!/bin/sh' "echo ran >>'$MARKER'" >"$STOP_SH"
+chmod -x "$STOP_SH"
+start sd-notx
+printf 'default-notx\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_default sd-notx >/dev/null
+check "stop no-ops when default stop.sh is not executable" "$(runs)" "$BEFORE_RUNS"
+rm -f "$STOP_SH"
+
+# ---- マルチルートのルート選択 ------------------------------------------------
+
+OTHER=$(mktemp -d)
+git -C "$OTHER" init -q
+git -C "$OTHER" config user.email test@example.com
+git -C "$OTHER" config user.name test
+printf 'other\n' >"$OTHER/tracked.txt"
+git -C "$OTHER" add -A
+git -C "$OTHER" -c commit.gpgsign=false commit -qm init
+
+payload_other() {
+  printf '{"session_id":"%s","cwd":"%s","workspace_roots":["%s"]}' "$1" "$OTHER" "$OTHER"
+}
+
+start_other_payload() { payload_other "$1" | (cd "$REPO" && "$GATE" session-start); }
+stop_other_payload() {
+  local id=$1
+  shift
+  payload_other "$id" | (cd "$REPO" && "$GATE" stop -- "$@")
+}
+
+start_other_payload mr-run
+printf 'multi-root-repo\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_other_payload mr-run "${RUN_OK[@]}" >/dev/null
+check "stop uses PWD project when payload points at another root" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+start_other_payload mr-skip
+printf 'multi-root-other\n' >>"$OTHER/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_other_payload mr-skip "${RUN_OK[@]}" >/dev/null
+check "stop ignores payload workspace_roots[0] when PWD is a git worktree" "$(runs)" "$BEFORE_RUNS"
+
+rm -f "$ARGS"
+printf '{"file_path":"%s","cwd":"%s","workspace_roots":["%s"]}' "$REPO/src.ts" "$OTHER" "$OTHER" | record_args
+check "after-edit uses PWD and ignores workspace_roots[0]" "$(logged_args)" "$REPO/src.ts"
+
+rm -f "$OXFMT" "$OXFMT_LOG"
+mkdir -p "$OTHER/node_modules/.bin"
+printf '%s\n' '#!/bin/sh' "printf '%s\\n' \"\$*\" >>'$OTHER/.oxfmt-args'" >"$OTHER/node_modules/.bin/oxfmt"
+chmod +x "$OTHER/node_modules/.bin/oxfmt"
+printf '{"file_path":"%s","cwd":"%s","workspace_roots":["%s"]}' "$REPO/src.ts" "$OTHER" "$OTHER" |
+  (cd "$REPO" && "$GATE" after-edit)
+check "after-edit does not use oxfmt from workspace_roots[0]" "$( [ -f "$OTHER/.oxfmt-args" ] && echo yes || echo no )" "no"
+
+mkdir -p "$OTHER/.cursor/hooks"
+printf '%s\n' '#!/bin/sh' "echo ran >>'$MARKER'" >"$OTHER/.cursor/hooks/stop.sh"
+chmod +x "$OTHER/.cursor/hooks/stop.sh"
+rm -f "$STOP_SH"
+start_other_payload mr-stop-default
+printf 'multi-root-stop-default\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+payload_other mr-stop-default | (cd "$REPO" && "$GATE" stop) >/dev/null
+check "stop does not use stop.sh from workspace_roots[0]" "$(runs)" "$BEFORE_RUNS"
+
+NON_GIT=$(mktemp -d)
+printf '{"session_id":"fb1","cwd":"%s"}' "$REPO" | (cd "$NON_GIT" && "$GATE" session-start)
+printf 'fallback-cwd\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+printf '{"session_id":"fb1","cwd":"%s"}' "$REPO" | (cd "$NON_GIT" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
+check "stop falls back to payload cwd when PWD is not a git worktree" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+rm -rf "$OUTSIDE" "$OTHER" "$NON_GIT"
+
+# ---- 未知のサブコマンド ------------------------------------------------------
 
 unknown_rc=0
 "$GATE" bogus </dev/null >/dev/null 2>&1 || unknown_rc=$?
@@ -222,7 +365,7 @@ EOF
 )
 check "unknown subcommand does not read stdin" "$unknown_left" "KEEP"
 
-# ---- summary -----------------------------------------------------------------
+# ---- 結果 --------------------------------------------------------------------
 
 printf '\n  %d passed, %d failed\n\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

@@ -2,13 +2,17 @@
 # Cursor のフック向けツールキットです。
 #
 #   cursor-agent-hooks session-start              セッションの基準状態を記録する
+#   cursor-agent-hooks after-edit                 編集された 1 ファイルだけを oxfmt する
 #   cursor-agent-hooks after-edit -- <command...> 編集された 1 ファイルだけを整形する
+#   cursor-agent-hooks stop                       ツリーが変わったときだけ stop.sh を実行する
 #   cursor-agent-hooks stop -- <command...>       ツリーが変わったときだけコマンドを実行する
 #
 # sessionStart / afterFileEdit / stop フックに接続します。
 # 何も変更しないターン（質問への回答やコードの読解）では、stop フックは
 # 検査一式を再実行せず即座に終了します。after-edit は編集されたファイルが
 # 自プロジェクト内のときだけ、コマンドの末尾にそのパスを付けて実行します。
+# コマンド未指定の after-edit は ./node_modules/.bin/oxfmt --threads=1、
+# コマンド未指定の stop は .cursor/hooks/stop.sh を使います。
 #
 # Cursor のフックでは conversation_id と followup_message を使う。
 # session_id と decision / reason も後方互換のために受け付け、出力する。
@@ -20,7 +24,7 @@
 
 set -u
 
-VERSION="2.0.0"
+VERSION="2.1.0"
 
 STATE_DIR="${CURSOR_AGENT_HOOKS_STATE_DIR:-${TMPDIR:-/tmp}/cursor-agent-hooks}"
 
@@ -30,8 +34,8 @@ Cursor hooks toolkit: session-change gate and after-edit formatter.
 
 Usage:
   cursor-agent-hooks session-start
-  cursor-agent-hooks after-edit -- <command...>
-  cursor-agent-hooks stop -- <command...>
+  cursor-agent-hooks after-edit [-- <command...>]
+  cursor-agent-hooks stop [-- <command...>]
 
 Options:
   -h, --help       Show this help
@@ -41,8 +45,12 @@ All subcommands read the agent hook payload as JSON on stdin.
 
   session-start   Record the working-tree baseline for this session
   after-edit      Run <command> with the edited file path appended, only when
-                  that file is inside the current project
-  stop            Run <command> only when the working tree changed
+                  that file is inside the current project.
+                  Default: ./node_modules/.bin/oxfmt --threads=1
+                  (no-op if that executable is missing)
+  stop            Run <command> only when the working tree changed.
+                  Default: .cursor/hooks/stop.sh
+                  (no-op if it is missing or not executable)
 
 Environment:
   CURSOR_AGENT_HOOKS_STATE_DIR   Where baselines are stored
@@ -98,11 +106,17 @@ esac
 cmd=$1
 shift
 
-# after-edit はマルチルートで workspace_roots[0] が別プロジェクトになるため、
-# session-start / stop の HOOK_CWD への cd は行いません。
+# after-edit は常に呼び出し時の PWD をプロジェクトルートとする。
+# マルチルートで workspace_roots[0] が別プロジェクトでも追従しない。
 if [ "$cmd" = after-edit ]; then
   [ "${1:-}" = "--" ] && shift
-  [ $# -eq 0 ] && exit 0
+  # コマンド未指定ならローカル oxfmt。無ければ何もしない。
+  if [ $# -eq 0 ]; then
+    if [ ! -x "./node_modules/.bin/oxfmt" ]; then
+      exit 0
+    fi
+    set -- ./node_modules/.bin/oxfmt --threads=1
+  fi
   file=$(jq -r '.file_path // .tool_input.file_path // empty' 2>/dev/null) || file=
   [ -n "$file" ] && [ -f "$file" ] || exit 0
   root=$PWD
@@ -120,10 +134,13 @@ fi
 SESSION_ID= HOOK_CWD= SOURCE=
 eval "$(jq -r '@sh "SESSION_ID=\(.session_id // .conversation_id // "") HOOK_CWD=\(.cwd // (.workspace_roots // [])[0] // "") SOURCE=\(.source // "")"' 2>/dev/null)"
 
-# フックプロセスの作業ディレクトリはエージェント次第なので、git を操作する前に
-# ペイロードが示すワークスペースへ移動します。
-if [ -n "$HOOK_CWD" ]; then
-  cd "$HOOK_CWD" 2>/dev/null || true
+# Cursor はプロジェクトフックをそのルートで起動する。呼び出し時の PWD が
+# Git 作業ツリー内ならそれを使い、マルチルートの workspace_roots[0] には
+# 引っ張られない。PWD が作業ツリー外のときだけペイロードの cwd に戻る。
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if [ -n "$HOOK_CWD" ]; then
+    cd "$HOOK_CWD" 2>/dev/null || true
+  fi
 fi
 
 if [ "$cmd" = session-start ]; then
@@ -136,7 +153,13 @@ if [ "$cmd" = session-start ]; then
 fi
 
 [ "${1:-}" = "--" ] && shift
-[ $# -eq 0 ] && exit 0
+# コマンド未指定ならプロジェクトの stop.sh。無い・実行不可なら何もしない。
+if [ $# -eq 0 ]; then
+  if [ ! -x ".cursor/hooks/stop.sh" ]; then
+    exit 0
+  fi
+  set -- .cursor/hooks/stop.sh
+fi
 
 STATE="$STATE_DIR/$SESSION_ID"
 CURRENT=$(worktree_hash)
