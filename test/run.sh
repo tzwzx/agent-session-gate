@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Test suite for agent-session-gate.
+# Test suite for cursor-agent-hooks.
 #
 # Runs against a disposable git repository created under $TMPDIR. No existing
 # repository is touched, and everything is removed on exit.
 
 set -uo pipefail
 
-GATE="$(cd "$(dirname "$0")/.." && pwd)/bin/agent-session-gate.sh"
+GATE="$(cd "$(dirname "$0")/.." && pwd)/bin/cursor-agent-hooks.sh"
 
 PASS=0
 FAIL=0
@@ -29,7 +29,7 @@ check() {
 
 REPO=$(mktemp -d)
 STATE=$(mktemp -d)
-export AGENT_SESSION_GATE_STATE_DIR="$STATE"
+export CURSOR_AGENT_HOOKS_STATE_DIR="$STATE"
 
 cleanup() { rm -rf "$REPO" "$STATE"; }
 trap cleanup EXIT
@@ -63,7 +63,7 @@ stop() {
   payload "$id" | "$GATE" stop -- "$@"
 }
 
-printf '\nagent-session-gate\n\n'
+printf '\ncursor-agent-hooks\n\n'
 
 # ---- tests -------------------------------------------------------------------
 
@@ -166,6 +166,47 @@ printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | "$GATE" session-start
 BEFORE_RUNS=$(runs)
 printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | "$GATE" stop -- "${RUN_OK[@]}" >/dev/null
 check "stop runs outside a git repository (fail safe)" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+# ---- after-edit --------------------------------------------------------------
+
+ARGS="$REPO/.args"
+printf 'export const probe={a:1}\n' >"$REPO/src.ts"
+record_args() {
+  (cd "$REPO" && "$GATE" after-edit -- sh -c 'printf "%s\n" "$*" >>"$0"' "$ARGS")
+}
+logged_args() {
+  if [ -f "$ARGS" ]; then cat "$ARGS"; else printf ''; fi
+}
+
+rm -f "$ARGS"
+printf '{"file_path":"%s"}' "$REPO/src.ts" | record_args
+check "after-edit appends the edited file path" "$(logged_args)" "$REPO/src.ts"
+
+rm -f "$ARGS"
+printf '{"tool_input":{"file_path":"%s"}}' "$REPO/src.ts" | record_args
+check "after-edit reads tool_input.file_path" "$(logged_args)" "$REPO/src.ts"
+
+rm -f "$ARGS"
+printf 'outside\n' >"$OUTSIDE/other.ts"
+printf '{"file_path":"%s"}' "$OUTSIDE/other.ts" | record_args
+check "after-edit skips a file outside the project" "$(logged_args)" ""
+
+rm -f "$ARGS"
+printf '{}' | record_args
+check "after-edit skips a payload without file_path" "$(logged_args)" ""
+
+rm -f "$ARGS"
+printf '{"file_path":"%s"}' "$REPO/missing.ts" | record_args
+check "after-edit skips a missing file" "$(logged_args)" ""
+
+after_edit_rc=0
+printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit -- sh -c 'exit 1') || after_edit_rc=$?
+check "after-edit exits 0 when the command fails" "$after_edit_rc" "0"
+
+rm -f "$ARGS"
+printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit)
+check "after-edit skips when no command follows" "$(logged_args)" ""
+
 rm -rf "$OUTSIDE"
 
 # ---- unknown subcommand ------------------------------------------------------

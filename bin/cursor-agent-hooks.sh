@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# AI コーディングエージェントのセッション中に作業ツリーが変わったときだけ
-# 検証コマンドを実行する。
+# Cursor のフック向けツールキットです。
 #
-#   agent-session-gate session-start          セッションの基準状態を記録する
-#   agent-session-gate stop -- <command...>   ツリーが変わったときだけコマンドを実行する
+#   cursor-agent-hooks session-start              セッションの基準状態を記録する
+#   cursor-agent-hooks after-edit -- <command...> 編集された 1 ファイルだけを整形する
+#   cursor-agent-hooks stop -- <command...>       ツリーが変わったときだけコマンドを実行する
 #
-# エージェントの sessionStart と stop フックに接続する。何も変更しないターン
-#（質問への回答やコードの読解）では、stop フックは検査一式を再実行せず即座に終了する。
+# sessionStart / afterFileEdit / stop フックに接続します。
+# 何も変更しないターン（質問への回答やコードの読解）では、stop フックは
+# 検査一式を再実行せず即座に終了します。after-edit は編集されたファイルが
+# 自プロジェクト内のときだけ、コマンドの末尾にそのパスを付けて実行します。
 #
 # Cursor のフックでは conversation_id と followup_message を使う。
 # session_id と decision / reason も後方互換のために受け付け、出力する。
@@ -18,30 +20,37 @@
 
 set -u
 
-VERSION="1.0.0"
+VERSION="2.0.0"
 
-STATE_DIR="${AGENT_SESSION_GATE_STATE_DIR:-${TMPDIR:-/tmp}/agent-session-gate}"
+STATE_DIR="${CURSOR_AGENT_HOOKS_STATE_DIR:-${TMPDIR:-/tmp}/cursor-agent-hooks}"
 
 usage() {
   cat <<'EOF'
-Run a verification command only when the working tree changed this session.
+Cursor hooks toolkit: session-change gate and after-edit formatter.
 
 Usage:
-  agent-session-gate session-start
-  agent-session-gate stop -- <command...>
+  cursor-agent-hooks session-start
+  cursor-agent-hooks after-edit -- <command...>
+  cursor-agent-hooks stop -- <command...>
 
 Options:
   -h, --help       Show this help
   -v, --version    Show the version
 
-Both subcommands read the agent hook payload as JSON on stdin.
+All subcommands read the agent hook payload as JSON on stdin.
+
+  session-start   Record the working-tree baseline for this session
+  after-edit      Run <command> with the edited file path appended, only when
+                  that file is inside the current project
+  stop            Run <command> only when the working tree changed
 
 Environment:
-  AGENT_SESSION_GATE_STATE_DIR   Where baselines are stored
-                                 (default: $TMPDIR/agent-session-gate)
+  CURSOR_AGENT_HOOKS_STATE_DIR   Where baselines are stored
+                                 (default: $TMPDIR/cursor-agent-hooks)
 
 Requirements: git and jq.
-When either of them is missing the gate fails safe: the command always runs.
+When either of them is missing, session-start/stop fail safe: the command
+always runs. after-edit exits 0 without running the command if jq is missing.
 EOF
 }
 
@@ -79,7 +88,7 @@ case "${1:-}" in
     printf '%s\n' "$VERSION"
     exit 0
     ;;
-  session-start | stop) ;;
+  session-start | after-edit | stop) ;;
   *)
     usage >&2
     exit 2
@@ -88,6 +97,22 @@ esac
 
 cmd=$1
 shift
+
+# after-edit はマルチルートで workspace_roots[0] が別プロジェクトになるため、
+# session-start / stop の HOOK_CWD への cd は行いません。
+if [ "$cmd" = after-edit ]; then
+  [ "${1:-}" = "--" ] && shift
+  [ $# -eq 0 ] && exit 0
+  file=$(jq -r '.file_path // .tool_input.file_path // empty' 2>/dev/null) || file=
+  [ -n "$file" ] && [ -f "$file" ] || exit 0
+  root=$PWD
+  case "$file" in
+    "$root"/*) ;;
+    *) exit 0 ;;
+  esac
+  "$@" "$file" >/dev/null 2>&1 || true
+  exit 0
+fi
 
 # Cursor の stop フックは conversation_id を渡しますが、既存の session_id も
 # 受け付けます。jq が無い・JSON が壊れている場合は変数が空のままになり、

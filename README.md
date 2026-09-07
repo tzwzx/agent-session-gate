@@ -1,6 +1,6 @@
-# agent-session-gate
+# cursor-agent-hooks
 
-Run your checks on an AI coding agent's stop hook — but only when the session actually changed something.
+Cursor hooks toolkit: a session-change gate for `stop`, plus an after-edit formatter that runs on the edited file only.
 
 ## 🤔 Why?
 
@@ -8,26 +8,35 @@ Running lint, typecheck and tests from a `Stop` hook is a great way to catch an 
 
 If your working tree happens to be dirty from earlier work, a naive `git diff` guard fires on all of those turns too. A project with a 20 second check suite pays that 20 seconds per turn for the privilege of verifying code that nobody touched.
 
-This gate records the state of the working tree when the session starts and compares it on every stop. Unchanged means the checks are skipped outright.
+This package records the state of the working tree when the session starts and compares it on every stop. Unchanged means the checks are skipped outright.
 
 ```
-turn that edits code       →  checks run     (~20s)
+turn that edits code         →  checks run     (~20s)
 turn that answers a question →  skipped        (~0.03s)
+```
+
+A second problem is formatting on every edit. A hook that runs `oxfmt` (or Prettier, Biome, …) with no path argument formats the **whole project**, on every CPU core, for every `Edit`/`Write`. In a multi-root workspace Cursor also runs every project's hook, so one edit can start several full-tree formatters at once.
+
+`after-edit` takes the edited `file_path` from the hook payload and appends it to your command, and only if that file is inside the current project.
+
+```
+one file edited  →  oxfmt --threads=1 that-file.ts   (~0.1s)
+other project    →  skipped
 ```
 
 ## 📦 Requirements
 
-- `git`
+- `git` (session-start / stop)
 - `jq`
 
-If either of them is missing the gate **fails safe**: it gives up on the comparison and runs your command, exactly as if no gate were installed.
+If `git` or `jq` is missing, session-start / stop **fail safe**: they give up on the comparison and run your command, exactly as if no gate were installed. `after-edit` exits 0 without running the command if `jq` is missing.
 
 ## 🚀 Install
 
 ```bash
-bun add -d github:tzwzx/agent-session-gate
+bun add -d github:tzwzx/cursor-agent-hooks
 # or
-npm i -D github:tzwzx/agent-session-gate
+npm i -D github:tzwzx/cursor-agent-hooks
 ```
 
 > [!IMPORTANT]
@@ -35,18 +44,18 @@ npm i -D github:tzwzx/agent-session-gate
 >
 > ```jsonc
 > // fallow — .fallowrc.jsonc
-> "ignoreDependencies": ["agent-session-gate"]
+> "ignoreDependencies": ["cursor-agent-hooks"]
 > ```
 > ```jsonc
 > // knip — knip.json
-> "ignoreDependencies": ["agent-session-gate"]
+> "ignoreDependencies": ["cursor-agent-hooks"]
 > ```
 >
 > `depcheck` and similar tools need the same treatment.
 
 ## 🔌 Wiring
 
-Two hooks: one records the baseline, one guards the checks.
+Call the binary under `node_modules/.bin`. That avoids `bunx` / `npx` resolution on every edit (hundreds of milliseconds each time).
 
 ### Cursor — `.cursor/hooks.json`
 
@@ -55,10 +64,13 @@ Two hooks: one records the baseline, one guards the checks.
   "version": 1,
   "hooks": {
     "sessionStart": [
-      { "command": "bunx agent-session-gate session-start" }
+      { "command": "./node_modules/.bin/cursor-agent-hooks session-start" }
+    ],
+    "afterFileEdit": [
+      { "command": "./node_modules/.bin/cursor-agent-hooks after-edit -- oxfmt --threads=1" }
     ],
     "stop": [
-      { "command": "bunx agent-session-gate stop -- bun run lint" }
+      { "command": "./node_modules/.bin/cursor-agent-hooks stop -- bun run lint" }
     ]
   }
 }
@@ -66,7 +78,15 @@ Two hooks: one records the baseline, one guards the checks.
 
 Anything after `--` is your command. It can be a script, a binary, or a whole pipeline runner.
 
+If the formatter is not on `PATH` when the hook runs, pass the local binary:
+
+```text
+./node_modules/.bin/cursor-agent-hooks after-edit -- ./node_modules/.bin/oxfmt --threads=1
+```
+
 ## 🧠 How it works
+
+### session-start / stop
 
 `session-start` hashes the working tree — tracked changes plus the paths and contents of untracked files — and stores it under `$TMPDIR` keyed by session.
 
@@ -74,13 +94,25 @@ Anything after `--` is your command. It can be a script, a binary, or a whole pi
 
 Because the hash covers untracked files, a brand new file the agent just wrote counts as a change. Renaming an untracked file counts too. A plain `git diff` guard misses those.
 
+### after-edit
+
+Cursor's `afterFileEdit` payload includes `file_path` (absolute). `after-edit` reads that (or `tool_input.file_path`), ignores the event when the path is missing, not a file, or outside `$PWD`, and otherwise runs:
+
+```text
+<your command...> <file_path>
+```
+
+stdout and stderr are discarded. A failing formatter still exits 0 so the agent edit is not blocked (fail-open).
+
+Project hooks run from the project root, including in a multi-root workspace. Each root therefore filters to its own files; an edit in project A does not format project B.
+
 ## 🤖 Cursor compatibility
 
-Cursor passes `conversation_id` in the hook payload and reads `followup_message` when a check fails.
+Cursor passes `conversation_id` in the hook payload and reads `followup_message` when a check fails. `afterFileEdit` provides `file_path`.
 
 ## 🛟 Fail-safe behavior
 
-The gate is built to over-run rather than under-run. It runs your command whenever it cannot prove nothing changed:
+The stop gate is built to over-run rather than under-run. It runs your command whenever it cannot prove nothing changed:
 
 - No session key in the payload
 - No baseline recorded (the hook was installed mid-session)
@@ -92,25 +124,29 @@ It also avoids two traps:
 - **Compaction** does not reset the baseline. Resetting it would silently drop the edits made before the context was compacted.
 - **An unfixable failure does not loop.** The state is recorded on failure too, so an agent that stops without editing anything is allowed through on the next stop instead of being sent back forever.
 
+`after-edit` is the opposite direction: it under-runs rather than format the wrong tree. Missing path, missing file, other project, or missing `jq` all exit 0 without running the command.
+
 ## ⚙️ Options
 
 ```
-agent-session-gate session-start
-agent-session-gate stop -- <command...>
+cursor-agent-hooks session-start
+cursor-agent-hooks after-edit -- <command...>
+cursor-agent-hooks stop -- <command...>
 
-  -h, --help       Show help
+  -h, --help       Show this help
   -v, --version    Show the version
 ```
 
 | Environment variable | Default |
 |---|---|
-| `AGENT_SESSION_GATE_STATE_DIR` | `$TMPDIR/agent-session-gate` |
+| `CURSOR_AGENT_HOOKS_STATE_DIR` | `$TMPDIR/cursor-agent-hooks` |
 
 ## ⚠️ Caveats
 
 - The first stop of a session runs the checks if no baseline was recorded, so make sure the `session-start` hook is wired up too.
 - Changes made by someone else while the session is open count as changes. That is intentional: the gate is about "is the tree the same as I last saw it", not about attributing edits.
 - State lives in `$TMPDIR` and is disposable. Losing it just means one extra run.
+- `after-edit` uses `$PWD` as the project root. Cursor starts project hooks there; do not `cd` before invoking it.
 
 ## 🧪 Tests
 

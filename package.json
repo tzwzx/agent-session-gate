@@ -1,9 +1,9 @@
 {
-  "name": "agent-session-gate",
-  "version": "1.0.0",
-  "description": "Run checks on an AI agent's stop hook only when the session actually changed something",
+  "name": "cursor-agent-hooks",
+  "version": "2.0.0",
+  "description": "Cursor hooks toolkit: run checks on stop only when the session changed something, and format the edited file after each edit",
   "bin": {
-    "agent-session-gate": "./bin/agent-session-gate.sh"
+    "cursor-agent-hooks": "./bin/cursor-agent-hooks.sh"
   },
   "files": [
     "bin"
@@ -13,17 +13,18 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tzwzx/agent-session-gate.git"
+    "url": "git+https://github.com/tzwzx/cursor-agent-hooks.git"
   },
   "bugs": {
-    "url": "https://github.com/tzwzx/agent-session-gate/issues"
+    "url": "https://github.com/tzwzx/cursor-agent-hooks/issues"
   },
-  "homepage": "https://github.com/tzwzx/agent-session-gate#readme",
+  "homepage": "https://github.com/tzwzx/cursor-agent-hooks#readme",
   "keywords": [
     "agent",
     "hooks",
     "cursor",
     "lint",
+    "format",
     "cli"
   ],
   "os": [

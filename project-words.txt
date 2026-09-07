@@ -1,5 +1,9 @@
+biome
 bunx
 fallowrc
+npx
+oxfmt
+prettier
 gpgsign
 naoto
 Naoto
