@@ -125,6 +125,62 @@ BEFORE_RUNS=$(runs)
 stop s3 "${RUN_NG[@]}" >/dev/null
 check "an unfixed failure does not loop" "$(runs)" "$BEFORE_RUNS"
 
+# ---- untracked rename --------------------------------------------------------
+
+printf 'payload\n' >"$REPO/untracked-src.txt"
+start s4
+BEFORE_RUNS=$(runs)
+mv "$REPO/untracked-src.txt" "$REPO/untracked-dst.txt"
+stop s4 "${RUN_OK[@]}" >/dev/null
+check "stop runs after an untracked file is renamed" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+# ---- binary re-edit ----------------------------------------------------------
+
+printf '\0\1\2' >"$REPO/bin.dat"
+git -C "$REPO" add bin.dat
+git -C "$REPO" -c commit.gpgsign=false commit -qm bin
+start s5
+printf '\0\1\3' >"$REPO/bin.dat"
+stop s5 "${RUN_OK[@]}" >/dev/null
+BEFORE_RUNS=$(runs)
+printf '\0\1\4' >"$REPO/bin.dat"
+stop s5 "${RUN_OK[@]}" >/dev/null
+check "stop runs after a same-length binary rewrite" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+# ---- unreadable untracked (fail safe) ----------------------------------------
+
+start s6
+ln -s /nonexistent "$REPO/broken-link"
+BEFORE_RUNS=$(runs)
+stop s6 "${RUN_OK[@]}" >/dev/null
+check "stop runs when an untracked file is unreadable (fail safe)" "$(runs)" "$((BEFORE_RUNS + 1))"
+BEFORE_RUNS=$(runs)
+stop s6 "${RUN_OK[@]}" >/dev/null
+check "unreadable untracked keeps failing safe" "$(runs)" "$((BEFORE_RUNS + 1))"
+rm -f "$REPO/broken-link"
+
+# ---- outside a git repository ------------------------------------------------
+
+OUTSIDE=$(mktemp -d)
+printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | "$GATE" session-start
+BEFORE_RUNS=$(runs)
+printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | "$GATE" stop -- "${RUN_OK[@]}" >/dev/null
+check "stop runs outside a git repository (fail safe)" "$(runs)" "$((BEFORE_RUNS + 1))"
+rm -rf "$OUTSIDE"
+
+# ---- unknown subcommand ------------------------------------------------------
+
+unknown_rc=0
+"$GATE" bogus </dev/null >/dev/null 2>&1 || unknown_rc=$?
+check "unknown subcommand exits 2" "$unknown_rc" "2"
+
+unknown_left=$(
+  { "$GATE" bogus >/dev/null; cat; } 2>/dev/null <<'EOF'
+KEEP
+EOF
+)
+check "unknown subcommand does not read stdin" "$unknown_left" "KEEP"
+
 # ---- summary -----------------------------------------------------------------
 
 printf '\n  %d passed, %d failed\n\n' "$PASS" "$FAIL"

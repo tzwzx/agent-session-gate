@@ -19,9 +19,8 @@ turn that answers a question →  skipped        (~0.03s)
 
 - `git`
 - `jq`
-- `shasum` or `sha1sum`
 
-If any of them is missing the gate **fails safe**: it gives up on the comparison and runs your command, exactly as if no gate were installed.
+If either of them is missing the gate **fails safe**: it gives up on the comparison and runs your command, exactly as if no gate were installed.
 
 ## 🚀 Install
 
@@ -69,11 +68,11 @@ Anything after `--` is your command. It can be a script, a binary, or a whole pi
 
 ## 🧠 How it works
 
-`session-start` hashes the working tree — tracked changes plus the content of untracked files — and stores it under `$TMPDIR` keyed by session.
+`session-start` hashes the working tree — tracked changes plus the paths and contents of untracked files — and stores it under `$TMPDIR` keyed by session.
 
 `stop` hashes it again. Identical means nothing happened this turn, so it exits without running anything. Otherwise it runs your command, records the new state, and on failure sends the agent back to work.
 
-Because the hash covers untracked files, a brand new file the agent just wrote counts as a change. A plain `git diff` guard misses those.
+Because the hash covers untracked files, a brand new file the agent just wrote counts as a change. Renaming an untracked file counts too. A plain `git diff` guard misses those.
 
 ## 🤖 Cursor compatibility
 
@@ -85,7 +84,7 @@ The gate is built to over-run rather than under-run. It runs your command whenev
 
 - No session key in the payload
 - No baseline recorded (the hook was installed mid-session)
-- `git`, `jq` or `shasum` unavailable
+- `git` or `jq` unavailable
 - Not inside a git repository
 
 It also avoids two traps:

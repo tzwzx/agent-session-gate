@@ -3,8 +3,11 @@ fallowrc
 gpgsign
 naoto
 Naoto
+pipefail
+stdin
 tazawa
 Tazawa
+textconv
 toplevel
 tzwzx
 worktree
