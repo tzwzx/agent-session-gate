@@ -173,8 +173,6 @@ check "stop runs outside a git repository (fail safe)" "$(runs)" "$((BEFORE_RUNS
 # ---- after-edit --------------------------------------------------------------
 
 ARGS="$REPO/.args"
-OXFMT="$REPO/node_modules/.bin/oxfmt"
-OXFMT_LOG="$REPO/.oxfmt-args"
 STOP_SH="$REPO/.cursor/hooks/stop.sh"
 printf 'export const probe={a:1}\n' >"$REPO/src.ts"
 record_args() {
@@ -182,14 +180,6 @@ record_args() {
 }
 logged_args() {
   if [ -f "$ARGS" ]; then cat "$ARGS"; else printf ''; fi
-}
-logged_oxfmt() {
-  if [ -f "$OXFMT_LOG" ]; then cat "$OXFMT_LOG"; else printf ''; fi
-}
-install_oxfmt() {
-  mkdir -p "$(dirname "$OXFMT")"
-  printf '%s\n' '#!/bin/sh' 'echo NOISE' "printf '%s\\n' \"\$*\" >>'$OXFMT_LOG'" >"$OXFMT"
-  chmod +x "$OXFMT"
 }
 install_stop_sh() {
   mkdir -p "$(dirname "$STOP_SH")"
@@ -222,26 +212,15 @@ after_edit_rc=0
 printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit -- sh -c 'exit 1') || after_edit_rc=$?
 check "after-edit exits 0 when the command fails" "$after_edit_rc" "0"
 
-# ---- after-edit / stop のデフォルト ------------------------------------------
-
-rm -f "$ARGS" "$OXFMT" "$OXFMT_LOG"
+rm -f "$ARGS"
 printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit)
-check "after-edit no-ops when default oxfmt is missing" "$(logged_args)$(logged_oxfmt)" ""
+check "after-edit skips when no command follows" "$(logged_args)" ""
 
-install_oxfmt
-rm -f "$OXFMT_LOG"
-OUT=$(printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit))
-check "after-edit defaults to oxfmt --threads=1" "$(logged_oxfmt)" "--threads=1 $REPO/src.ts"
-check "after-edit default discards formatter output" "$OUT" ""
-
-rm -f "$ARGS" "$OXFMT_LOG"
-printf '{"file_path":"%s"}' "$REPO/src.ts" | record_args
-check "after-edit -- overrides the default oxfmt" "$(logged_args)" "$REPO/src.ts"
-check "after-edit -- does not run default oxfmt" "$(logged_oxfmt)" ""
-
-rm -f "$OXFMT_LOG"
+rm -f "$ARGS"
 printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit --)
-check "after-edit -- with no command uses default oxfmt" "$(logged_oxfmt)" "--threads=1 $REPO/src.ts"
+check "after-edit -- with no command is a no-op" "$(logged_args)" ""
+
+# ---- stop のデフォルト -------------------------------------------------------
 
 rm -f "$STOP_SH"
 start sd-missing
@@ -324,14 +303,6 @@ check "stop ignores payload workspace_roots[0] when PWD is a git worktree" "$(ru
 rm -f "$ARGS"
 printf '{"file_path":"%s","cwd":"%s","workspace_roots":["%s"]}' "$REPO/src.ts" "$OTHER" "$OTHER" | record_args
 check "after-edit uses PWD and ignores workspace_roots[0]" "$(logged_args)" "$REPO/src.ts"
-
-rm -f "$OXFMT" "$OXFMT_LOG"
-mkdir -p "$OTHER/node_modules/.bin"
-printf '%s\n' '#!/bin/sh' "printf '%s\\n' \"\$*\" >>'$OTHER/.oxfmt-args'" >"$OTHER/node_modules/.bin/oxfmt"
-chmod +x "$OTHER/node_modules/.bin/oxfmt"
-printf '{"file_path":"%s","cwd":"%s","workspace_roots":["%s"]}' "$REPO/src.ts" "$OTHER" "$OTHER" |
-  (cd "$REPO" && "$GATE" after-edit)
-check "after-edit does not use oxfmt from workspace_roots[0]" "$( [ -f "$OTHER/.oxfmt-args" ] && echo yes || echo no )" "no"
 
 mkdir -p "$OTHER/.cursor/hooks"
 printf '%s\n' '#!/bin/sh' "echo ran >>'$MARKER'" >"$OTHER/.cursor/hooks/stop.sh"

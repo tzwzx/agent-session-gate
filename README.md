@@ -17,10 +17,10 @@ turn that answers a question →  skipped        (~0.03s)
 
 A second problem is formatting on every edit. A hook that runs `oxfmt` (or Prettier, Biome, …) with no path argument formats the **whole project**, on every CPU core, for every `Edit`/`Write`. In a multi-root workspace Cursor also runs every project's hook, so one edit can start several full-tree formatters at once.
 
-`after-edit` takes the edited `file_path` from the hook payload and appends it to the formatter command, and only if that file is inside the current project. With no `--` override it runs `./node_modules/.bin/oxfmt --threads=1`.
+`after-edit` takes the edited `file_path` from the hook payload and appends it to the command you pass after `--`, and only if that file is inside the current project. The package does not pick a formatter; `oxfmt`, Prettier, Biome, and so on stay in the hook config.
 
 ```
-one file edited  →  oxfmt --threads=1 that-file.ts   (~0.1s)
+one file edited  →  <your command> that-file.ts   (~0.1s)
 other project    →  skipped
 ```
 
@@ -67,7 +67,7 @@ Call the binary under `node_modules/.bin`. That avoids `bunx` / `npx` resolution
       { "command": "./node_modules/.bin/cursor-agent-hooks session-start" }
     ],
     "afterFileEdit": [
-      { "command": "./node_modules/.bin/cursor-agent-hooks after-edit" }
+      { "command": "./node_modules/.bin/cursor-agent-hooks after-edit -- ./node_modules/.bin/oxfmt --threads=1" }
     ],
     "stop": [
       { "command": "./node_modules/.bin/cursor-agent-hooks stop" }
@@ -76,12 +76,7 @@ Call the binary under `node_modules/.bin`. That avoids `bunx` / `npx` resolution
 }
 ```
 
-Defaults when you omit `--`:
-
-- `after-edit` runs `./node_modules/.bin/oxfmt --threads=1` on the edited file. If that executable is missing, it exits 0 and does nothing.
-- `stop` runs `.cursor/hooks/stop.sh` when the working tree changed. If that file is missing or not executable, it exits 0 and does nothing.
-
-Override either command with `--`:
+`after-edit` has no default command. Pass the formatter after `--`. `stop` without `--` runs `.cursor/hooks/stop.sh` when the working tree changed (no-op if that file is missing or not executable).
 
 ```text
 ./node_modules/.bin/cursor-agent-hooks after-edit -- ./node_modules/.bin/prettier --write
@@ -107,12 +102,10 @@ Both subcommands prefer the invocation `$PWD` when it is inside a Git worktree, 
 Cursor's `afterFileEdit` payload includes `file_path` (absolute). `after-edit` reads that (or `tool_input.file_path`), ignores the event when the path is missing, not a file, or outside `$PWD`, and otherwise runs:
 
 ```text
-./node_modules/.bin/oxfmt --threads=1 <file_path>
+<your command...> <file_path>
 ```
 
-or, with `-- <command...>`, `<your command...> <file_path>`.
-
-stdout and stderr are discarded. A failing formatter still exits 0 so the agent edit is not blocked (fail-open). Missing `oxfmt` is also a no-op.
+stdout and stderr are discarded. A failing formatter still exits 0 so the agent edit is not blocked (fail-open). No command after `--` is also a no-op.
 
 `after-edit` always uses the invocation `$PWD` as the project root. It does not follow payload `cwd` or `workspace_roots[0]`. Project hooks run from the project root, including in a multi-root workspace, so each root filters to its own files; an edit in project A does not format project B.
 
@@ -134,13 +127,13 @@ It also avoids two traps:
 - **Compaction** does not reset the baseline. Resetting it would silently drop the edits made before the context was compacted.
 - **An unfixable failure does not loop.** The state is recorded on failure too, so an agent that stops without editing anything is allowed through on the next stop instead of being sent back forever.
 
-`after-edit` is the opposite direction: it under-runs rather than format the wrong tree. Missing path, missing file, other project, missing `jq`, or missing default `oxfmt` all exit 0 without running the command.
+`after-edit` is the opposite direction: it under-runs rather than format the wrong tree. Missing path, missing file, other project, missing `jq`, or a missing formatter command all exit 0 without running anything.
 
 ## ⚙️ Options
 
 ```
 cursor-agent-hooks session-start
-cursor-agent-hooks after-edit [-- <command...>]
+cursor-agent-hooks after-edit -- <command...>
 cursor-agent-hooks stop [-- <command...>]
 
   -h, --help       Show this help

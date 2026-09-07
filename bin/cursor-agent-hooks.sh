@@ -2,7 +2,6 @@
 # Cursor のフック向けツールキットです。
 #
 #   cursor-agent-hooks session-start              セッションの基準状態を記録する
-#   cursor-agent-hooks after-edit                 編集された 1 ファイルだけを oxfmt する
 #   cursor-agent-hooks after-edit -- <command...> 編集された 1 ファイルだけを整形する
 #   cursor-agent-hooks stop                       ツリーが変わったときだけ stop.sh を実行する
 #   cursor-agent-hooks stop -- <command...>       ツリーが変わったときだけコマンドを実行する
@@ -11,7 +10,7 @@
 # 何も変更しないターン（質問への回答やコードの読解）では、stop フックは
 # 検査一式を再実行せず即座に終了します。after-edit は編集されたファイルが
 # 自プロジェクト内のときだけ、コマンドの末尾にそのパスを付けて実行します。
-# コマンド未指定の after-edit は ./node_modules/.bin/oxfmt --threads=1、
+# フォーマッタ名はパッケージに持たず、常に -- 以降で渡します。
 # コマンド未指定の stop は .cursor/hooks/stop.sh を使います。
 #
 # Cursor のフックでは conversation_id と followup_message を使う。
@@ -24,7 +23,7 @@
 
 set -u
 
-VERSION="2.1.0"
+VERSION="2.2.0"
 
 STATE_DIR="${CURSOR_AGENT_HOOKS_STATE_DIR:-${TMPDIR:-/tmp}/cursor-agent-hooks}"
 
@@ -34,7 +33,7 @@ Cursor hooks toolkit: session-change gate and after-edit formatter.
 
 Usage:
   cursor-agent-hooks session-start
-  cursor-agent-hooks after-edit [-- <command...>]
+  cursor-agent-hooks after-edit -- <command...>
   cursor-agent-hooks stop [-- <command...>]
 
 Options:
@@ -46,8 +45,7 @@ All subcommands read the agent hook payload as JSON on stdin.
   session-start   Record the working-tree baseline for this session
   after-edit      Run <command> with the edited file path appended, only when
                   that file is inside the current project.
-                  Default: ./node_modules/.bin/oxfmt --threads=1
-                  (no-op if that executable is missing)
+                  No default formatter; omit -- <command...> and it no-ops
   stop            Run <command> only when the working tree changed.
                   Default: .cursor/hooks/stop.sh
                   (no-op if it is missing or not executable)
@@ -110,13 +108,7 @@ shift
 # マルチルートで workspace_roots[0] が別プロジェクトでも追従しない。
 if [ "$cmd" = after-edit ]; then
   [ "${1:-}" = "--" ] && shift
-  # コマンド未指定ならローカル oxfmt。無ければ何もしない。
-  if [ $# -eq 0 ]; then
-    if [ ! -x "./node_modules/.bin/oxfmt" ]; then
-      exit 0
-    fi
-    set -- ./node_modules/.bin/oxfmt --threads=1
-  fi
+  [ $# -eq 0 ] && exit 0
   file=$(jq -r '.file_path // .tool_input.file_path // empty' 2>/dev/null) || file=
   [ -n "$file" ] && [ -f "$file" ] || exit 0
   root=$PWD
