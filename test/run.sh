@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# cursor-agent-hooks のテストです。
-#
-# $TMPDIR 配下に使い捨て Git リポジトリを作り、それに対して実行します。
-# 既存リポジトリは触らず、終了時にすべて削除します。
+# Exercise the gate against a disposable git repo under $TMPDIR.
 
 set -uo pipefail
 
@@ -25,8 +22,6 @@ check() {
   if [ "$2" = "$3" ]; then pass "$1"; else fail "$1" "$2" "$3"; fi
 }
 
-# ---- フィクスチャ -----------------------------------------------------------
-
 REPO=$(mktemp -d)
 STATE=$(mktemp -d)
 export CURSOR_AGENT_HOOKS_STATE_DIR="$STATE"
@@ -41,8 +36,8 @@ printf 'hello\n' >"$REPO/tracked.txt"
 git -C "$REPO" add -A
 git -C "$REPO" -c commit.gpgsign=false commit -qm init
 
-# 実行したかどうかはマーカーファイルへの追記で判定します。
-# 失敗系はファイルから出力し、ゲートがコマンドラインをエコーする分と区別します。
+# Count runs via a marker file. Failure cases print from a file so the gate's
+# command-line echo is not mistaken for the command output.
 MARKER="$REPO/.ran"
 MESSAGE="$REPO/.msg"
 printf 'KABOOM: something is broken\n' >"$MESSAGE"
@@ -55,7 +50,6 @@ runs() {
 
 payload() { printf '{"session_id":"%s","cwd":"%s"%s}' "$1" "$REPO" "${2:-}"; }
 
-# Cursor と同様、プロジェクトルートを PWD にして呼び出します。
 start() { payload "$1" "${2:-}" | (cd "$REPO" && "$GATE" session-start); }
 stop() {
   local id=$1
@@ -67,8 +61,6 @@ stop_default() {
 }
 
 printf '\ncursor-agent-hooks\n\n'
-
-# ---- テスト ------------------------------------------------------------------
 
 start s1
 check "session-start records a baseline" "$([ -s "$STATE/s1" ] && echo yes || echo no)" "yes"
@@ -93,8 +85,6 @@ check "stop runs when no baseline exists (fail safe)" "$(runs)" "3"
 printf '{"cwd":"%s"}' "$REPO" | (cd "$REPO" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "stop runs without a session id (fail safe)" "$(runs)" "4"
 
-# ---- コンパクション ----------------------------------------------------------
-
 start s2
 BEFORE=$(cat "$STATE/s2")
 printf 'more\n' >>"$REPO/tracked.txt"
@@ -104,8 +94,6 @@ check "compaction keeps the original baseline" "$(cat "$STATE/s2")" "$BEFORE"
 start s2 ',"source":"resume"'
 check "resume refreshes the baseline" "$([ "$(cat "$STATE/s2")" != "$BEFORE" ] && echo yes || echo no)" "yes"
 
-# ---- Cursor のペイロード -----------------------------------------------------
-
 printf '{"conversation_id":"c1","workspace_roots":["%s"]}' "$REPO" | (cd "$REPO" && "$GATE" session-start)
 check "cursor payload records a baseline" "$([ -s "$STATE/c1" ] && echo yes || echo no)" "yes"
 
@@ -113,8 +101,6 @@ BEFORE_RUNS=$(runs)
 printf '{"conversation_id":"c1","status":"completed","loop_count":0,"workspace_roots":["%s"]}' "$REPO" |
   (cd "$REPO" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "cursor payload skips an unchanged tree" "$(runs)" "$BEFORE_RUNS"
-
-# ---- 失敗時の出力 ------------------------------------------------------------
 
 start s3
 printf 'break\n' >>"$REPO/tracked.txt"
@@ -128,16 +114,12 @@ BEFORE_RUNS=$(runs)
 stop s3 "${RUN_NG[@]}" >/dev/null
 check "an unfixed failure does not loop" "$(runs)" "$BEFORE_RUNS"
 
-# ---- 未追跡ファイルのリネーム ------------------------------------------------
-
 printf 'payload\n' >"$REPO/untracked-src.txt"
 start s4
 BEFORE_RUNS=$(runs)
 mv "$REPO/untracked-src.txt" "$REPO/untracked-dst.txt"
 stop s4 "${RUN_OK[@]}" >/dev/null
 check "stop runs after an untracked file is renamed" "$(runs)" "$((BEFORE_RUNS + 1))"
-
-# ---- バイナリの再編集 --------------------------------------------------------
 
 printf '\0\1\2' >"$REPO/bin.dat"
 git -C "$REPO" add bin.dat
@@ -150,8 +132,6 @@ printf '\0\1\4' >"$REPO/bin.dat"
 stop s5 "${RUN_OK[@]}" >/dev/null
 check "stop runs after a same-length binary rewrite" "$(runs)" "$((BEFORE_RUNS + 1))"
 
-# ---- 読めない未追跡ファイル（フェイルセーフ） --------------------------------
-
 start s6
 ln -s /nonexistent "$REPO/broken-link"
 BEFORE_RUNS=$(runs)
@@ -162,15 +142,11 @@ stop s6 "${RUN_OK[@]}" >/dev/null
 check "unreadable untracked keeps failing safe" "$(runs)" "$((BEFORE_RUNS + 1))"
 rm -f "$REPO/broken-link"
 
-# ---- Git リポジトリの外 ------------------------------------------------------
-
 OUTSIDE=$(mktemp -d)
 printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | (cd "$OUTSIDE" && "$GATE" session-start)
 BEFORE_RUNS=$(runs)
 printf '{"session_id":"out","cwd":"%s"}' "$OUTSIDE" | (cd "$OUTSIDE" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "stop runs outside a git repository (fail safe)" "$(runs)" "$((BEFORE_RUNS + 1))"
-
-# ---- after-edit --------------------------------------------------------------
 
 ARGS="$REPO/.args"
 STOP_SH="$REPO/.cursor/hooks/stop.sh"
@@ -220,8 +196,6 @@ rm -f "$ARGS"
 printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$REPO" && "$GATE" after-edit --)
 check "after-edit -- with no command is a no-op" "$(logged_args)" ""
 
-# ---- stop のデフォルト -------------------------------------------------------
-
 rm -f "$STOP_SH"
 start sd-missing
 printf 'default-missing\n' >>"$REPO/tracked.txt"
@@ -266,8 +240,6 @@ BEFORE_RUNS=$(runs)
 stop_default sd-notx >/dev/null
 check "stop no-ops when default stop.sh is not executable" "$(runs)" "$BEFORE_RUNS"
 rm -f "$STOP_SH"
-
-# ---- マルチルートのルート選択 ------------------------------------------------
 
 OTHER=$(mktemp -d)
 git -C "$OTHER" init -q
@@ -323,8 +295,6 @@ check "stop falls back to payload cwd when PWD is not a git worktree" "$(runs)" 
 
 rm -rf "$OUTSIDE" "$OTHER" "$NON_GIT"
 
-# ---- 未知のサブコマンド ------------------------------------------------------
-
 unknown_rc=0
 "$GATE" bogus </dev/null >/dev/null 2>&1 || unknown_rc=$?
 check "unknown subcommand exits 2" "$unknown_rc" "2"
@@ -335,8 +305,6 @@ KEEP
 EOF
 )
 check "unknown subcommand does not read stdin" "$unknown_left" "KEEP"
-
-# ---- 結果 --------------------------------------------------------------------
 
 printf '\n  %d passed, %d failed\n\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]
