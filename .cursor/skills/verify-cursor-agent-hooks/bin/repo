@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Create a disposable git repository for one verification drive.
+# Usage: VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/repo
+# Prints the new repository path on stdout.
+
+set -euo pipefail
+
+# shellcheck source=_lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
+
+verify_require_run_id
+
+root="$(verify_scratch_root)"
+mkdir -p "$root"
+dir="$(mktemp -d "$root/repo-XXXXXX")"
+
+git -C "$dir" init -q
+git -C "$dir" config user.email verify@example.com
+git -C "$dir" config user.name verify
+printf 'hello\n' >"$dir/tracked.txt"
+git -C "$dir" add -A
+git -C "$dir" -c commit.gpgsign=false commit -qm init
+
+echo "$dir" >>"$root/dirs.txt"
+printf '%s\n' "$dir"

@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# Read-only health check: is this checkout worth driving?
+# Usage: .cursor/skills/verify-cursor-agent-hooks/bin/doctor
+
+set -euo pipefail
+
+# shellcheck source=_lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
+
+fail() {
+  echo "doctor FAIL: $*" >&2
+  exit 1
+}
+
+ok() {
+  echo "doctor ok: $*"
+}
+
+if ! command -v git >/dev/null 2>&1; then
+  fail "git is not on PATH"
+fi
+ok "git $(git --version)"
+
+if ! command -v jq >/dev/null 2>&1; then
+  fail "jq is not on PATH"
+fi
+ok "jq $(jq --version)"
+
+if [[ ! -f "$REPO_ROOT/package.json" ]]; then
+  fail "package.json missing at $REPO_ROOT"
+fi
+
+pkg_name="$(python3 -c "import json; print(json.load(open('$REPO_ROOT/package.json'))['name'])")"
+pkg_version="$(python3 -c "import json; print(json.load(open('$REPO_ROOT/package.json'))['version'])")"
+if [[ "$pkg_name" != "cursor-agent-hooks" ]]; then
+  fail "expected package name cursor-agent-hooks, found $pkg_name"
+fi
+ok "package $pkg_name@$pkg_version"
+
+if [[ ! -x "$CLI_SH" ]]; then
+  fail "CLI missing or not executable at $CLI_SH"
+fi
+ok "CLI present at $CLI_SH"
+
+help_out="$(mktemp)"
+help_err="$(mktemp)"
+set +e
+"$CLI_SH" --help >"$help_out" 2>"$help_err"
+help_code=$?
+set -e
+if [[ "$help_code" -ne 0 ]]; then
+  echo "----- stdout -----" >&2
+  cat "$help_out" >&2
+  echo "----- stderr -----" >&2
+  cat "$help_err" >&2
+  rm -f "$help_out" "$help_err"
+  fail "cursor-agent-hooks.sh --help exited $help_code"
+fi
+for needle in "session-start" "after-edit" "stop" "--help" "--version"; do
+  if ! grep -F -q -- "$needle" "$help_out"; then
+    rm -f "$help_out" "$help_err"
+    fail "help output missing '$needle'"
+  fi
+done
+rm -f "$help_out" "$help_err"
+ok "CLI --help exits 0 and names session-start, after-edit, stop"
+
+ver_out="$("$CLI_SH" --version)"
+if [[ "$ver_out" != "$pkg_version" ]]; then
+  fail "--version is '$ver_out' but package.json version is '$pkg_version'"
+fi
+ok "CLI --version matches package.json ($pkg_version)"
+
+echo "doctor PASS: $pkg_name@$pkg_version is driveable via $CLI_SH"
+echo "doctor note: never run session-start/stop against this repo — use bin/repo"

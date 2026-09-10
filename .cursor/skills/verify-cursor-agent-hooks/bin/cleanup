@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Remove scratch repositories and isolated hook state for VERIFY_RUN_ID.
+# Does not touch test-results/verify-cursor-agent-hooks/.
+# Usage: VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/cleanup
+
+set -euo pipefail
+
+# shellcheck source=_lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
+
+verify_require_run_id
+
+root="$(verify_scratch_root)"
+if [[ -d "$root" ]]; then
+  command rm -rf "$root"
+  echo "cleanup: removed $root"
+else
+  echo "cleanup: no scratch tree at $root"
+fi
+
+echo "cleanup: evidence left at $EVIDENCE_ROOT"

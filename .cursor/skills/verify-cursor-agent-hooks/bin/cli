@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# Drive cursor-agent-hooks.sh with a JSON payload on stdin and capture a transcript.
+# Usage:
+#   VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/cli \
+#     --cwd <disposable-repo> --name <stem> [--payload '<json>'] -- <args>
+# Empty --payload (or omitted) feeds no stdin. Writes evidence under
+# test-results/verify-cursor-agent-hooks/<name>/. Always exits 0; read exit.txt.
+
+set -euo pipefail
+
+# shellcheck source=_lib.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_lib.sh"
+
+verify_require_run_id
+
+cwd=""
+name=""
+payload=""
+has_payload=0
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --cwd)
+      cwd="${2:-}"
+      shift 2
+      ;;
+    --name)
+      name="${2:-}"
+      shift 2
+      ;;
+    --payload)
+      payload="${2:-}"
+      has_payload=1
+      shift 2
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      echo "verify-cli: unknown option: $1" >&2
+      echo "usage: verify-cli --cwd DIR --name STEM [--payload JSON] -- <args>" >&2
+      exit 2
+      ;;
+  esac
+done
+
+if [[ -z "$cwd" || -z "$name" ]]; then
+  echo "verify-cli: --cwd and --name are required" >&2
+  exit 2
+fi
+if [[ ! -d "$cwd" ]]; then
+  echo "verify-cli: --cwd is not a directory: $cwd" >&2
+  exit 2
+fi
+if [[ ! -x "$CLI_SH" ]]; then
+  echo "verify-cli: CLI missing at $CLI_SH" >&2
+  exit 2
+fi
+
+cwd="$(verify_realpath "$cwd")"
+repo_root="$(verify_realpath "$REPO_ROOT")"
+
+if [[ "$cwd" == "$repo_root" ]]; then
+  echo "verify-cli: refusing to drive session hooks in the package repo ($repo_root)" >&2
+  echo "verify-cli: use a disposable repo from bin/repo" >&2
+  exit 2
+fi
+
+state="$(verify_state_dir)"
+evidence="$(verify_evidence_dir "$name")"
+printf '%s\n' "$CLI_SH $*" >"$evidence/argv.txt"
+printf '%s\n' "$cwd" >"$evidence/cwd.txt"
+printf '%s\n' "$state" >"$evidence/state-dir.txt"
+if [[ "$has_payload" -eq 1 ]]; then
+  printf '%s\n' "$payload" >"$evidence/payload.json"
+else
+  : >"$evidence/payload.json"
+fi
+
+set +e
+(
+  cd "$cwd"
+  export CURSOR_AGENT_HOOKS_STATE_DIR="$state"
+  if [[ "$has_payload" -eq 1 ]]; then
+    printf '%s' "$payload" | "$CLI_SH" "$@"
+  else
+    "$CLI_SH" "$@" </dev/null
+  fi
+) >"$evidence/stdout.txt" 2>"$evidence/stderr.txt"
+code=$?
+set -e
+printf '%s\n' "$code" >"$evidence/exit.txt"
+
+echo "verify-cli name=$name exit=$code cwd=$cwd evidence=$evidence"
+exit 0
