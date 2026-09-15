@@ -38,4 +38,4 @@ Each feature file starts with an H1 title and one paragraph describing the user-
 
 - [Help and version](./help.md) covers `--help`, `-h`, `--version`, `-v`, and an unknown command.
 - [Stop gate](./stop.md) covers session-start, skip-on-unchanged, run-on-change, fail-open, and block JSON.
-- [After-edit](./after-edit.md) covers in-project format, outside-project skip, and missing path.
+- [After-edit](./after-edit.md) covers in-project format, outside-project skip, missing path, and no command.

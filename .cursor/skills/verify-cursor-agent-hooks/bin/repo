@@ -21,5 +21,6 @@ printf 'hello\n' >"$dir/tracked.txt"
 git -C "$dir" add -A
 git -C "$dir" -c commit.gpgsign=false commit -qm init
 
+dir="$(verify_realpath "$dir")"
 echo "$dir" >>"$root/dirs.txt"
 printf '%s\n' "$dir"
