@@ -1,9 +1,9 @@
 {
-  "name": "cursor-agent-hooks",
-  "version": "2.2.0",
-  "description": "Cursor hooks toolkit: run checks on stop only when the session changed something, and format the edited file after each edit",
+  "name": "agent-hooks",
+  "version": "3.0.0",
+  "description": "Agent hooks toolkit for Cursor, Claude Code and more: run checks on stop only when the session changed something, and format the edited file after each edit",
   "bin": {
-    "cursor-agent-hooks": "./bin/cursor-agent-hooks.sh"
+    "agent-hooks": "./bin/agent-hooks.sh"
   },
   "files": [
     "bin"
@@ -13,16 +13,17 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tzwzx/cursor-agent-hooks.git"
+    "url": "git+https://github.com/tzwzx/agent-hooks.git"
   },
   "bugs": {
-    "url": "https://github.com/tzwzx/cursor-agent-hooks/issues"
+    "url": "https://github.com/tzwzx/agent-hooks/issues"
   },
-  "homepage": "https://github.com/tzwzx/cursor-agent-hooks#readme",
+  "homepage": "https://github.com/tzwzx/agent-hooks#readme",
   "keywords": [
     "agent",
     "hooks",
     "cursor",
+    "claude-code",
     "lint",
     "format",
     "cli"

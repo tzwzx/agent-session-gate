@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Drive cursor-agent-hooks.sh with a JSON payload on stdin and capture a transcript.
+# Drive agent-hooks.sh with a JSON payload on stdin and capture a transcript.
 # Usage:
-#   VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/cli \
+#   VERIFY_RUN_ID=<id> .claude/skills/verify-agent-hooks/bin/cli \
 #     --cwd <disposable-repo> --name <stem> [--payload '<json>'] -- <args>
 # Empty --payload (or omitted) feeds no stdin. Writes evidence under
-# test-results/verify-cursor-agent-hooks/<name>/. Always exits 0; read exit.txt.
+# test-results/verify-agent-hooks/<name>/. Always exits 0; read exit.txt.
 
 set -euo pipefail
 
@@ -81,7 +81,7 @@ fi
 set +e
 (
   cd "$cwd"
-  export CURSOR_AGENT_HOOKS_STATE_DIR="$state"
+  export AGENT_HOOKS_STATE_DIR="$state"
   if [[ "$has_payload" -eq 1 ]]; then
     printf '%s' "$payload" | "$CLI_SH" "$@"
   else

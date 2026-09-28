@@ -12,8 +12,8 @@ Session-start records a working-tree hash. Stop runs the user's command only whe
 
 ## How to get to it (user POV)
 
-- Cursor `sessionStart` runs `cursor-agent-hooks session-start` with a JSON payload on stdin.
-- Cursor `stop` runs `cursor-agent-hooks stop` or `cursor-agent-hooks stop -- <command>`.
+- Cursor `sessionStart` / Claude Code `SessionStart` runs `agent-hooks session-start` with a JSON payload on stdin.
+- Cursor `stop` / Claude Code `Stop` runs `agent-hooks stop` or `agent-hooks stop -- <command>`.
 - A user can run the same commands in a terminal with a crafted payload.
 
 ## Driving it with verify-cli
@@ -30,7 +30,7 @@ Preconditions:
 - **Tracked change.** Append a line to `$REPO/tracked.txt`. Run `"$PATH_VERIFY/cli" --cwd "$REPO" --name stop-tracked --payload "$PAYLOAD" -- stop -- sh -c 'echo ran >>.ran'`. `exit.txt` is `0`. `$REPO/.ran` contains exactly one line `ran`.
 - **Fail open.** Run `"$PATH_VERIFY/cli" --cwd "$REPO" --name stop-fail-open --payload '{"session_id":"no-baseline","cwd":"'"$REPO"'"}' -- stop -- sh -c 'echo ran >>.ran'`. `exit.txt` is `0`. `$REPO/.ran` now has two lines.
 - **Block.** Append another line to `$REPO/tracked.txt`. Run `"$PATH_VERIFY/cli" --cwd "$REPO" --name stop-block --payload "$PAYLOAD" -- stop -- sh -c 'echo ran >>.ran; echo KABOOM; exit 1'`. `exit.txt` is `0`. `stdout.txt` is JSON with `.decision == "block"` and a `followup_message` that contains `KABOOM`. Run the failing command again with `--name stop-block-noloop`. `$REPO/.ran` gains no extra line from that second stop (the failure recorded a new baseline).
-- **Proof.** Copy or quote `.ran` line counts into the evidence notes. Cleanup must not delete `test-results/verify-cursor-agent-hooks/`.
+- **Proof.** Copy or quote `.ran` line counts into the evidence notes. Cleanup must not delete `test-results/verify-agent-hooks/`.
 
 ## Gotchas
 
@@ -38,4 +38,4 @@ Preconditions:
 - A skip and a run both exit 0. The marker file is the only proof.
 - Reusing a dirty `.ran` without counting lines will mis-attribute later bullets. Start this feature on a fresh `bin/repo`.
 - Compaction (`source: compact`) must not refresh the baseline; that path is covered by the package tests and is not required for this feature's live proof.
-- Never point `CURSOR_AGENT_HOOKS_STATE_DIR` at the default user directory.
+- Never point `AGENT_HOOKS_STATE_DIR` at the default user directory.

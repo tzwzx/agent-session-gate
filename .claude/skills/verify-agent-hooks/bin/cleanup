@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remove scratch repositories and isolated hook state for VERIFY_RUN_ID.
-# Does not touch test-results/verify-cursor-agent-hooks/.
-# Usage: VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/cleanup
+# Does not touch test-results/verify-agent-hooks/.
+# Usage: VERIFY_RUN_ID=<id> .claude/skills/verify-agent-hooks/bin/cleanup
 
 set -euo pipefail
 

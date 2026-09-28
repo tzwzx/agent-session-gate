@@ -1,19 +1,19 @@
 ---
-name: verify-cursor-agent-hooks
-description: "Drive the cursor-agent-hooks CLI the way a user does — session-start/stop gate and after-edit formatter against a disposable git repo. Use when proving skip/run behavior, fail-open, or after-edit path filtering."
+name: verify-agent-hooks
+description: "Drive the agent-hooks CLI the way a user does — session-start/stop gate and after-edit formatter against a disposable git repo. Use when proving skip/run behavior, fail-open, or after-edit path filtering."
 ---
 
-# Verify cursor-agent-hooks
+# Verify agent-hooks
 
-cursor-agent-hooks is a short-lived bash CLI. There is no server, TUI, or browser. The published user path is `bin/cursor-agent-hooks.sh` (`package.json` `"bin": { "cursor-agent-hooks": "./bin/cursor-agent-hooks.sh" }`).
+agent-hooks is a short-lived bash CLI. There is no server, TUI, or browser. The published user path is `bin/agent-hooks.sh` (`package.json` `"bin": { "agent-hooks": "./bin/agent-hooks.sh" }`).
 
-Users invoke it from Cursor hook config with a JSON payload on stdin:
+Users invoke it from an agent's hook config (Cursor, Claude Code, ...) with a JSON payload on stdin:
 
-- `session-start` records a working-tree baseline under `CURSOR_AGENT_HOOKS_STATE_DIR` (default `$TMPDIR/cursor-agent-hooks`).
-- `stop` re-hashes the tree and runs a command only when it changed (default `.cursor/hooks/stop.sh`).
+- `session-start` records a working-tree baseline under `AGENT_HOOKS_STATE_DIR` (default `$TMPDIR/agent-hooks`).
+- `stop` re-hashes the tree and runs a command only when it changed (default: first executable of `.cursor/hooks/stop.sh` and `.claude/hooks/stop.sh`).
 - `after-edit -- <command...>` appends `file_path` from the payload and runs the command only when that file is inside `$PWD`.
 
-Do not treat `./test/run.sh` as a substitute for driving `bin/cursor-agent-hooks.sh` through this harness. The test script is a good recipe source; the proof is a transcript this run captured.
+Do not treat `./test/run.sh` as a substitute for driving `bin/agent-hooks.sh` through this harness. The test script is a good recipe source; the proof is a transcript this run captured.
 
 Read `features/README.md` before driving. Drive every entry point the chosen feature file lists.
 
@@ -23,20 +23,20 @@ From the repo root:
 
 ```bash
 export VERIFY_RUN_ID=verify-$(date +%Y%m%dT%H%M%S)
-export PATH_VERIFY=".cursor/skills/verify-cursor-agent-hooks/bin"
+export PATH_VERIFY=".claude/skills/verify-agent-hooks/bin"
 ```
 
 No install or build. Ready when `bin/doctor` exits 0. Each drive is a new process. Create a disposable git repo with `bin/repo` for every recipe that hashes a worktree.
 
-Helpers set `CURSOR_AGENT_HOOKS_STATE_DIR` to `$TMPDIR/cursor-agent-hooks-verify-$VERIFY_RUN_ID/state`. Never use the default `$TMPDIR/cursor-agent-hooks` (that directory may hold a real Cursor session).
+Helpers set `AGENT_HOOKS_STATE_DIR` to `$TMPDIR/agent-hooks-verify-$VERIFY_RUN_ID/state`. Never use the default `$TMPDIR/agent-hooks` (that directory may hold a real agent session).
 
 ## Doctor
 
 ```bash
-.cursor/skills/verify-cursor-agent-hooks/bin/doctor
+.claude/skills/verify-agent-hooks/bin/doctor
 ```
 
-Read-only. Checks `git` and `jq` on PATH, package name `cursor-agent-hooks`, executable `bin/cursor-agent-hooks.sh`, `--help` names the three subcommands, and `--version` matches `package.json`.
+Read-only. Checks `git` and `jq` on PATH, package name `agent-hooks`, executable `bin/agent-hooks.sh`, `--help` names the three subcommands, and `--version` matches `package.json`.
 
 Missing `jq` fails doctor. The product fail-opens without jq; that is a mapped edge, but this harness requires jq so payloads parse the same way a working install does.
 
@@ -66,25 +66,25 @@ REPO="$("$PATH_VERIFY/repo")"
 
 ## Evidence
 
-Proof root: `test-results/verify-cursor-agent-hooks/` (survives cleanup). Each drive writes `argv.txt`, `cwd.txt`, `state-dir.txt`, `payload.json`, `stdout.txt`, `stderr.txt`, `exit.txt`.
+Proof root: `test-results/verify-agent-hooks/` (survives cleanup). Each drive writes `argv.txt`, `cwd.txt`, `state-dir.txt`, `payload.json`, `stdout.txt`, `stderr.txt`, `exit.txt`.
 
 Proof standards:
 
-- Drive `bin/cursor-agent-hooks.sh`, not `test/run.sh`.
+- Drive `bin/agent-hooks.sh`, not `test/run.sh`.
 - Capture the command and the result. For the gate, the result is whether a marker file in the disposable repo was written, not only the process exit (stop almost always exits 0).
 - For a mutation, re-read the marker or the baseline file. A silent exit 0 is not proof of a skip.
 - For `decision: block`, parse stdout JSON. Do not grep the raw command output only.
-- Never write baselines into the default `$TMPDIR/cursor-agent-hooks`.
+- Never write baselines into the default `$TMPDIR/agent-hooks`.
 
 Record the feature id and entry point in `--name`.
 
 ## Cleanup
 
 ```bash
-.cursor/skills/verify-cursor-agent-hooks/bin/cleanup
+.claude/skills/verify-agent-hooks/bin/cleanup
 ```
 
-Removes `$TMPDIR/cursor-agent-hooks-verify-$VERIFY_RUN_ID` (repos + isolated state). Never deletes `test-results/verify-cursor-agent-hooks/`. Never kills by process name. Processes are short-lived.
+Removes `$TMPDIR/agent-hooks-verify-$VERIFY_RUN_ID` (repos + isolated state). Never deletes `test-results/verify-agent-hooks/`. Never kills by process name. Processes are short-lived.
 
 If a drive fails, cleanup that `VERIFY_RUN_ID` before retrying so leftover `.ran` markers do not leak. Confirm the failed attempt's evidence directory is still present.
 
@@ -93,10 +93,10 @@ If a drive fails, cleanup that `VERIFY_RUN_ID` before retrying so leftover `.ran
 All bash helpers are executable. They resolve the repo root from their own location.
 
 ```bash
-.cursor/skills/verify-cursor-agent-hooks/bin/doctor
-VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/repo
-VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/cli --cwd DIR --name STEM [--payload JSON] -- <args>
-VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/cleanup
+.claude/skills/verify-agent-hooks/bin/doctor
+VERIFY_RUN_ID=<id> .claude/skills/verify-agent-hooks/bin/repo
+VERIFY_RUN_ID=<id> .claude/skills/verify-agent-hooks/bin/cli --cwd DIR --name STEM [--payload JSON] -- <args>
+VERIFY_RUN_ID=<id> .claude/skills/verify-agent-hooks/bin/cleanup
 ```
 
 - `doctor` — read-only readiness.
@@ -113,7 +113,7 @@ Two runs may proceed in parallel with different `VERIFY_RUN_ID` values. They mus
 Do not drive:
 
 - `session-start` / `stop` with `--cwd` equal to this package (refused).
-- any hook against the default `CURSOR_AGENT_HOOKS_STATE_DIR`.
+- any hook against the default `AGENT_HOOKS_STATE_DIR`.
 - a second stop in a repo that still has a leftover `.ran` unless the feature says to reuse it.
 
 If you cannot get a disposable git repo, refuse rather than using this checkout.

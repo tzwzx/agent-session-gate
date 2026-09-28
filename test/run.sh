@@ -3,7 +3,7 @@
 
 set -uo pipefail
 
-GATE="$(cd "$(dirname "$0")/.." && pwd)/bin/cursor-agent-hooks.sh"
+GATE="$(cd "$(dirname "$0")/.." && pwd)/bin/agent-hooks.sh"
 
 PASS=0
 FAIL=0
@@ -24,7 +24,7 @@ check() {
 
 REPO=$(mktemp -d)
 STATE=$(mktemp -d)
-export CURSOR_AGENT_HOOKS_STATE_DIR="$STATE"
+export AGENT_HOOKS_STATE_DIR="$STATE"
 
 cleanup() { rm -rf "$REPO" "$STATE" "${OUTSIDE:-}" "${OTHER:-}" "${NON_GIT:-}"; }
 trap cleanup EXIT
@@ -60,7 +60,7 @@ stop_default() {
   payload "$1" | (cd "$REPO" && "$GATE" stop)
 }
 
-printf '\ncursor-agent-hooks\n\n'
+printf '\nagent-hooks\n\n'
 
 start s1
 check "session-start records a baseline" "$([ -s "$STATE/s1" ] && echo yes || echo no)" "yes"
@@ -101,6 +101,21 @@ BEFORE_RUNS=$(runs)
 printf '{"conversation_id":"c1","status":"completed","loop_count":0,"workspace_roots":["%s"]}' "$REPO" |
   (cd "$REPO" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
 check "cursor payload skips an unchanged tree" "$(runs)" "$BEFORE_RUNS"
+
+printf '{"session_id":"cc1","transcript_path":"/dev/null","cwd":"%s","hook_event_name":"SessionStart","source":"startup"}' "$REPO" |
+  (cd "$REPO" && "$GATE" session-start)
+check "claude code payload records a baseline" "$([ -s "$STATE/cc1" ] && echo yes || echo no)" "yes"
+
+BEFORE_RUNS=$(runs)
+printf '{"session_id":"cc1","transcript_path":"/dev/null","cwd":"%s","hook_event_name":"Stop","stop_hook_active":false}' "$REPO" |
+  (cd "$REPO" && "$GATE" stop -- "${RUN_OK[@]}") >/dev/null
+check "claude code payload skips an unchanged tree" "$(runs)" "$BEFORE_RUNS"
+
+LEGACY_STATE=$(mktemp -d)
+printf '{"session_id":"legacy","cwd":"%s"}' "$REPO" |
+  (cd "$REPO" && unset AGENT_HOOKS_STATE_DIR && CURSOR_AGENT_HOOKS_STATE_DIR="$LEGACY_STATE" "$GATE" session-start)
+check "legacy CURSOR_AGENT_HOOKS_STATE_DIR is still honored" "$([ -s "$LEGACY_STATE/legacy" ] && echo yes || echo no)" "yes"
+rm -rf "$LEGACY_STATE"
 
 start s3
 printf 'break\n' >>"$REPO/tracked.txt"
@@ -172,6 +187,21 @@ printf '{"tool_input":{"file_path":"%s"}}' "$REPO/src.ts" | record_args
 check "after-edit reads tool_input.file_path" "$(logged_args)" "$REPO/src.ts"
 
 rm -f "$ARGS"
+printf '{"hook_event_name":"PostToolUse","tool_name":"NotebookEdit","tool_input":{"notebook_path":"%s"}}' "$REPO/src.ts" | record_args
+check "after-edit reads tool_input.notebook_path" "$(logged_args)" "$REPO/src.ts"
+
+rm -f "$ARGS"
+printf '{"tool_input":{"file_path":"src.ts"}}' | record_args
+check "after-edit resolves a relative path against PWD" "$(logged_args)" "$REPO/src.ts"
+
+rm -f "$ARGS"
+LINK="$STATE/repo-link"
+ln -s "$REPO" "$LINK"
+printf '{"file_path":"%s"}' "$REPO/src.ts" | (cd "$LINK" && "$GATE" after-edit -- sh -c 'printf "%s\n" "$*" >>"$0"' "$ARGS")
+check "after-edit accepts a project reached through a symlink" "$(logged_args)" "$REPO/src.ts"
+rm -f "$LINK"
+
+rm -f "$ARGS"
 printf 'outside\n' >"$OUTSIDE/other.ts"
 printf '{"file_path":"%s"}' "$OUTSIDE/other.ts" | record_args
 check "after-edit skips a file outside the project" "$(logged_args)" ""
@@ -240,6 +270,26 @@ BEFORE_RUNS=$(runs)
 stop_default sd-notx >/dev/null
 check "stop no-ops when default stop.sh is not executable" "$(runs)" "$BEFORE_RUNS"
 rm -f "$STOP_SH"
+
+CLAUDE_STOP_SH="$REPO/.claude/hooks/stop.sh"
+mkdir -p "$(dirname "$CLAUDE_STOP_SH")"
+printf '%s\n' '#!/bin/sh' "echo ran >>'$MARKER'" >"$CLAUDE_STOP_SH"
+chmod +x "$CLAUDE_STOP_SH"
+start sd-claude
+printf 'default-claude\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_default sd-claude >/dev/null
+check "stop falls back to .claude/hooks/stop.sh" "$(runs)" "$((BEFORE_RUNS + 1))"
+
+printf '%s\n' '#!/bin/sh' "echo default-stop >>'$STOP_DEFAULT_LOG'" >"$CLAUDE_STOP_SH"
+install_stop_sh
+start sd-both
+printf 'default-both\n' >>"$REPO/tracked.txt"
+BEFORE_RUNS=$(runs)
+stop_default sd-both >/dev/null
+check "stop prefers .cursor/hooks/stop.sh when both exist" "$(runs)" "$((BEFORE_RUNS + 1))"
+check "stop runs only one default stop.sh" "$( [ -f "$STOP_DEFAULT_LOG" ] && echo yes || echo no )" "no"
+rm -f "$STOP_SH" "$CLAUDE_STOP_SH"
 
 OTHER=$(mktemp -d)
 git -C "$OTHER" init -q

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create a disposable git repository for one verification drive.
-# Usage: VERIFY_RUN_ID=<id> .cursor/skills/verify-cursor-agent-hooks/bin/repo
+# Usage: VERIFY_RUN_ID=<id> .claude/skills/verify-agent-hooks/bin/repo
 # Prints the new repository path on stdout.
 
 set -euo pipefail

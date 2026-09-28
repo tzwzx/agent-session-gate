@@ -1,14 +1,14 @@
-# cursor-agent-hooks verification map
+# agent-hooks verification map
 
-This directory is the maintained source for verifying the user-facing behavior of the cursor-agent-hooks CLI. Read the index before driving, then use the matching feature file as the recipe.
+This directory is the maintained source for verifying the user-facing behavior of the agent-hooks CLI. Read the index before driving, then use the matching feature file as the recipe.
 
 ## Baseline preconditions
 
-- `.cursor/skills/verify-cursor-agent-hooks/bin/doctor` exits 0 (`git` and `jq` present).
+- `.claude/skills/verify-agent-hooks/bin/doctor` exits 0 (`git` and `jq` present).
 - Set `VERIFY_RUN_ID`. Create each worktree with `bin/repo`.
-- Drive only `bin/cursor-agent-hooks.sh` through `bin/cli`.
+- Drive only `bin/agent-hooks.sh` through `bin/cli`.
 - Never pass `--cwd` equal to this package repo. `bin/cli` refuses that path (exit 2).
-- Helpers isolate state under `$TMPDIR/cursor-agent-hooks-verify-$VERIFY_RUN_ID/state`.
+- Helpers isolate state under `$TMPDIR/agent-hooks-verify-$VERIFY_RUN_ID/state`.
 
 ## Driving conventions
 

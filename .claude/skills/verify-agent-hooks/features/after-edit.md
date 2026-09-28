@@ -1,6 +1,6 @@
 # After-edit
 
-After-edit runs the user's formatter with the edited file path appended, only when that path is a real file whose string starts with the invocation `$PWD/`. Missing path, missing file, other project, or no command exit 0 without running anything.
+After-edit runs the user's formatter with the edited file path appended, only when that path is a real file whose physical directory is under the invocation `$PWD`. Missing path, missing file, other project, or no command exit 0 without running anything.
 
 ## Sub-features
 
@@ -11,8 +11,8 @@ After-edit runs the user's formatter with the edited file path appended, only wh
 
 ## How to get to it (user POV)
 
-- Cursor `afterFileEdit` runs `cursor-agent-hooks after-edit -- <formatter...>`.
-- The payload includes `file_path` (or `tool_input.file_path`).
+- Cursor `afterFileEdit` or Claude Code `PostToolUse` runs `agent-hooks after-edit -- <formatter...>`.
+- The payload includes `file_path` (Cursor), or `tool_input.file_path` / `tool_input.notebook_path` (Claude Code).
 
 ## Driving it with verify-cli
 
@@ -21,7 +21,7 @@ Preconditions:
 - `bin/doctor` has passed.
 - `$REPO` is a fresh `bin/repo`. Reuse it across this feature's bullets in order.
 - `$OUTSIDE` is a file **not** under `$REPO` (write one under the scratch root, not in this package).
-- Use `$REPO` as printed by `bin/repo` (it realpaths). `bin/cli` also realpaths `--cwd`. Payload `file_path` must use that same prefix or macOS `/var` vs `/private/var` makes an in-project file look outside.
+- Use `$REPO` as printed by `bin/repo` (it realpaths). `bin/cli` also realpaths `--cwd`. The CLI compares physical paths, so `/var` vs `/private/var` no longer matters, but keep the printed prefix for readable evidence.
 
 The published CLI appends `file_path` as the last argument. Use this command after `--` so the appended path is recorded:
 
@@ -40,6 +40,6 @@ The published CLI appends `file_path` as the last argument. Use this command aft
 - After-edit discards the formatter's stdout/stderr. Proof is the marker file, not `stdout.txt`.
 - After-edit always exits 0, including when the formatter fails. A failing formatter is not a product error.
 - `$PWD` is the project root, not `payload.cwd`. `bin/cli` already `cd`s to `--cwd`.
-- In-project is a string prefix (`$PWD/`), not a realpath compare. Drive with the realpath `$REPO` from `bin/repo`.
+- In-project compares physical directories (`pwd -P`), so a symlinked `$PWD` still matches. A relative `file_path` is resolved against `$PWD`.
 - `file_path` must be an existing file. A directory path is skipped.
 - Do not pass this package's own files as `file_path` while `--cwd` is the disposable repo — that is the outside case.

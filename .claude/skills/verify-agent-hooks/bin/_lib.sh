@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# Shared paths for verify-cursor-agent-hooks helpers. Source this file; do not run it.
+# Shared paths for verify-agent-hooks helpers. Source this file; do not run it.
 
 set -euo pipefail
 
 _VERIFY_BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERIFY_SKILL_DIR="$(cd "$_VERIFY_BIN_DIR/.." && pwd)"
 REPO_ROOT="$(cd "$_VERIFY_BIN_DIR/../../../.." && pwd)"
-CLI_SH="$REPO_ROOT/bin/cursor-agent-hooks.sh"
-EVIDENCE_ROOT="$REPO_ROOT/test-results/verify-cursor-agent-hooks"
+CLI_SH="$REPO_ROOT/bin/agent-hooks.sh"
+EVIDENCE_ROOT="$REPO_ROOT/test-results/verify-agent-hooks"
 SCRATCH_PARENT="${TMPDIR:-/tmp}"
 
 verify_require_run_id() {
   if [[ -z "${VERIFY_RUN_ID:-}" ]]; then
-    echo "verify-cursor-agent-hooks: set VERIFY_RUN_ID before creating scratch or cleaning up (example: export VERIFY_RUN_ID=prove-stop)" >&2
+    echo "verify-agent-hooks: set VERIFY_RUN_ID before creating scratch or cleaning up (example: export VERIFY_RUN_ID=prove-stop)" >&2
     exit 2
   fi
 }
 
 verify_scratch_root() {
   verify_require_run_id
-  printf '%s\n' "$SCRATCH_PARENT/cursor-agent-hooks-verify-${VERIFY_RUN_ID}"
+  printf '%s\n' "$SCRATCH_PARENT/agent-hooks-verify-${VERIFY_RUN_ID}"
 }
 
 verify_state_dir() {

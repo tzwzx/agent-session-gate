@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Read-only health check: is this checkout worth driving?
-# Usage: .cursor/skills/verify-cursor-agent-hooks/bin/doctor
+# Usage: .claude/skills/verify-agent-hooks/bin/doctor
 
 set -euo pipefail
 
@@ -32,8 +32,8 @@ fi
 
 pkg_name="$(python3 -c "import json; print(json.load(open('$REPO_ROOT/package.json'))['name'])")"
 pkg_version="$(python3 -c "import json; print(json.load(open('$REPO_ROOT/package.json'))['version'])")"
-if [[ "$pkg_name" != "cursor-agent-hooks" ]]; then
-  fail "expected package name cursor-agent-hooks, found $pkg_name"
+if [[ "$pkg_name" != "agent-hooks" ]]; then
+  fail "expected package name agent-hooks, found $pkg_name"
 fi
 ok "package $pkg_name@$pkg_version"
 
@@ -54,7 +54,7 @@ if [[ "$help_code" -ne 0 ]]; then
   echo "----- stderr -----" >&2
   cat "$help_err" >&2
   rm -f "$help_out" "$help_err"
-  fail "cursor-agent-hooks.sh --help exited $help_code"
+  fail "agent-hooks.sh --help exited $help_code"
 fi
 for needle in "session-start" "after-edit" "stop" "--help" "--version"; do
   if ! grep -F -q -- "$needle" "$help_out"; then

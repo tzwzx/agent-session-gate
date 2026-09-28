@@ -4,18 +4,23 @@
 
 set -u
 
-VERSION="2.2.0"
+VERSION="3.0.0"
 
-STATE_DIR="${CURSOR_AGENT_HOOKS_STATE_DIR:-${TMPDIR:-/tmp}/cursor-agent-hooks}"
+# CURSOR_AGENT_HOOKS_STATE_DIR is the name from before the rename.
+STATE_DIR="${AGENT_HOOKS_STATE_DIR:-${CURSOR_AGENT_HOOKS_STATE_DIR:-${TMPDIR:-/tmp}/agent-hooks}}"
+
+# First executable one wins when stop has no command.
+DEFAULT_STOP_SCRIPTS=".cursor/hooks/stop.sh .claude/hooks/stop.sh"
 
 usage() {
   cat <<'EOF'
-Cursor hooks toolkit: session-change gate and after-edit formatter.
+Agent hooks toolkit (Cursor, Claude Code, ...): session-change gate and
+after-edit formatter.
 
 Usage:
-  cursor-agent-hooks session-start
-  cursor-agent-hooks after-edit -- <command...>
-  cursor-agent-hooks stop [-- <command...>]
+  agent-hooks session-start
+  agent-hooks after-edit -- <command...>
+  agent-hooks stop [-- <command...>]
 
 Options:
   -h, --help       Show this help
@@ -28,12 +33,12 @@ All subcommands read the agent hook payload as JSON on stdin.
                   that file is inside the current project.
                   No default formatter; omit -- <command...> and it no-ops
   stop            Run <command> only when the working tree changed.
-                  Default: .cursor/hooks/stop.sh
-                  (no-op if it is missing or not executable)
+                  Default: the first executable of .cursor/hooks/stop.sh
+                  and .claude/hooks/stop.sh (no-op if neither is)
 
 Environment:
-  CURSOR_AGENT_HOOKS_STATE_DIR   Where baselines are stored
-                                 (default: $TMPDIR/cursor-agent-hooks)
+  AGENT_HOOKS_STATE_DIR   Where baselines are stored
+                                 (default: $TMPDIR/agent-hooks)
 
 Requirements: git and jq.
 When either of them is missing, session-start/stop fail safe: the command
@@ -85,13 +90,23 @@ shift
 
 # after-edit always uses the caller's PWD as the project root. Do not follow
 # workspace_roots[0] in a multi-root workspace.
+# Cursor sends file_path; Claude Code sends tool_input.file_path (Edit, Write,
+# MultiEdit) or tool_input.notebook_path (NotebookEdit).
 if [ "$cmd" = after-edit ]; then
   [ "${1:-}" = "--" ] && shift
   [ $# -eq 0 ] && exit 0
-  file=$(jq -r '.file_path // .tool_input.file_path // empty' 2>/dev/null) || file=
-  [ -n "$file" ] && [ -f "$file" ] || exit 0
-  root=$PWD
+  file=$(jq -r '.file_path // .tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null) || file=
+  [ -n "$file" ] || exit 0
   case "$file" in
+    /*) ;;
+    *) file=$PWD/$file ;;
+  esac
+  [ -f "$file" ] || exit 0
+  # Compare physical paths: the agent and the hook may see the project through
+  # different symlinks (e.g. /var vs /private/var on macOS).
+  root=$(pwd -P) || exit 0
+  dir=$(cd "$(dirname "$file")" 2>/dev/null && pwd -P) || exit 0
+  case "$dir/" in
     "$root"/*) ;;
     *) exit 0 ;;
   esac
@@ -99,12 +114,12 @@ if [ "$cmd" = after-edit ]; then
   exit 0
 fi
 
-# Cursor stop sends conversation_id; still accept session_id. Missing jq or
+# Cursor sends conversation_id; Claude Code sends session_id. Missing jq or
 # broken JSON leaves these empty and we fail open (run the command).
 SESSION_ID= HOOK_CWD= SOURCE=
 eval "$(jq -r '@sh "SESSION_ID=\(.session_id // .conversation_id // "") HOOK_CWD=\(.cwd // (.workspace_roots // [])[0] // "") SOURCE=\(.source // "")"' 2>/dev/null)"
 
-# Cursor launches project hooks from that root. Prefer PWD when it is a git
+# Agents launch project hooks from that root. Prefer PWD when it is a git
 # worktree; do not follow workspace_roots[0]. Fall back to payload cwd only
 # when PWD is outside a worktree.
 if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
@@ -124,10 +139,13 @@ fi
 
 [ "${1:-}" = "--" ] && shift
 if [ $# -eq 0 ]; then
-  if [ ! -x ".cursor/hooks/stop.sh" ]; then
-    exit 0
-  fi
-  set -- .cursor/hooks/stop.sh
+  for script in $DEFAULT_STOP_SCRIPTS; do
+    if [ -x "$script" ]; then
+      set -- "$script"
+      break
+    fi
+  done
+  [ $# -eq 0 ] && exit 0
 fi
 
 STATE="$STATE_DIR/$SESSION_ID"
